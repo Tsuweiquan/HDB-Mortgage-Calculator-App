@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HDB Cash Outlay Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <div class="topbar-row">
+      <div>
+        <h1>HDB Cash Outlay Calculator</h1>
+        <p class="sub">How much cash do you actually need to fork out on completion day?</p>
+      </div>
+      <button type="button" id="pdfBtn" class="btn-primary">Export PDF</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap layout">
+
+  <form id="calc" class="panel" autocomplete="off">
+
+    <!-- ===== 0. BUYER INCOME ===== -->
+    <section class="card">
+      <h2><span class="num">0</span> Buyer income</h2>
+
+      <div class="grid2">
+        <label class="field">
+          <span class="lbl">Age of youngest buyer</span>
+          <input type="number" id="age" min="21" max="80" step="1" value="35" />
+          <span class="hint">Drives the age-95 lease rule and the loan tenure cap.</span>
+        </label>
+        <label class="field">
+          <span class="lbl">Gross monthly income (S$)</span>
+          <input type="text" inputmode="numeric" class="money" id="income" value="5,000" />
+          <span class="hint">Combined, before CPF deduction.</span>
+        </label>
+      </div>
+
+      <label class="field">
+        <span class="lbl">Other monthly debt repayments (S$)</span>
+        <input type="text" inputmode="numeric" class="money" id="otherDebt" value="0" />
+        <span class="hint">Car loans, personal loans, credit-card minimums, student loans. Used for TDSR.</span>
+      </label>
+    </section>
+
+    <!-- ===== 1. FLAT DETAILS ===== -->
+    <section class="card">
+      <h2><span class="num">1</span> Flat details</h2>
+
+      <label class="field">
+        <span class="lbl">HDB room type <em>*</em></span>
+        <select id="roomType" required>
+          <option value="2">2-room Flexi</option>
+          <option value="3">3-room</option>
+          <option value="4" selected>4-room</option>
+          <option value="5">5-room</option>
+          <option value="exec">Executive / Maisonette</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span class="lbl">Purchase price (S$) <em>*</em></span>
+        <input type="text" inputmode="numeric" class="money" id="price" value="900,000" required />
+        <span class="hint">Resale price agreed with the seller, or the BTO/SBF price.</span>
+      </label>
+
+      <label class="field">
+        <span class="lbl">TOP year (lease start) <em>*</em></span>
+        <input type="number" id="topYear" step="1" value="1990" />
+        <span class="hint">Year the flat obtained its Temporary Occupation Permit. HDB leases run 99 years from this point.</span>
+      </label>
+
+      <div id="leaseBox" class="infobox"></div>
+    </section>
+
+    <!-- ===== 2. LOAN ===== -->
+    <section class="card">
+      <h2><span class="num">2</span> Loan, LTV &amp; MSR</h2>
+
+      <label class="field">
+        <span class="lbl">Loan type</span>
+        <select id="loanType">
+          <option value="hdb" selected>HDB concessionary loan</option>
+          <option value="bank">Bank loan</option>
+        </select>
+        <span class="hint">Bank loans require a minimum 5% of price in <strong>cash</strong>; HDB loans allow the full downpayment in CPF.</span>
+      </label>
+
+      <div class="radio-row">
+        <label class="radio">
+          <input type="radio" name="loanMode" value="ltv" checked />
+          <span>Let the rules cap it</span>
+        </label>
+        <label class="radio">
+          <input type="radio" name="loanMode" value="manual" />
+          <span>I know my loan amount</span>
+        </label>
+      </div>
+
+      <div id="ltvBlock">
+        <label class="field">
+          <span class="lbl">Target LTV</span>
+          <div class="inline">
+            <input type="number" id="ltv" min="0" max="80" step="0.01" value="75" />
+            <span class="suffix">%</span>
+            <button type="button" id="ltvAutoBtn" class="chip" hidden>Reset</button>
+          </div>
+          <span class="hint" id="ltvHint"></span>
+        </label>
+      </div>
+
+      <div id="manualBlock" hidden>
+        <label class="field">
+          <span class="lbl">Approved loan amount (S$)</span>
+          <input type="text" inputmode="numeric" class="money" id="loanAmount" value="675,000" />
+          <span class="hint">From your HLE letter or bank IPA. Still checked against the LTV, MSR and TDSR caps.</span>
+        </label>
+      </div>
+
+      <div class="grid2">
+        <label class="field">
+          <span class="lbl">Loan tenure (years)</span>
+          <input type="number" id="tenure" min="1" max="30" step="1" value="25" />
+        </label>
+        <label class="field">
+          <span class="lbl">Stress-test rate</span>
+          <div class="inline">
+            <input type="number" id="stressRate" min="0" max="15" step="0.1" value="4" />
+            <span class="suffix">%</span>
+          </div>
+        </label>
+      </div>
+      <span class="hint">MAS requires MSR and TDSR to be assessed at the higher of 4% p.a. or the prevailing rate.</span>
+
+      <div id="tenureBox" class="infobox"></div>
+      <div id="msrBox" class="infobox"></div>
+    </section>
+
+    <!-- ===== 3. CPF ===== -->
+    <section class="card">
+      <h2><span class="num">3</span> Your CPF</h2>
+      <label class="field">
+        <span class="lbl">CPF Ordinary Account balance (S$)</span>
+        <input type="text" inputmode="numeric" class="money" id="cpfOa" value="80,000" />
+        <span class="hint">Combined OA of all buyers. Leave the full balance here — the calculator only draws what is needed.</span>
+      </label>
+      <div id="cpfCapBox" class="infobox"></div>
+    </section>
+
+    <!-- ===== 4. GRANTS ===== -->
+    <section class="card">
+      <h2><span class="num">4</span> Grants</h2>
+
+      <label class="field">
+        <span class="lbl">Grant scheme</span>
+        <select id="grantPreset">
+          <option value="custom" selected>My own figures (25k / 10k / 10k)</option>
+          <option value="official">HDB 2026 published figures</option>
+        </select>
+        <span class="hint" id="presetHint"></span>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" id="grantEligible" checked />
+        <span>Eligible for the flat-type housing grant (first-timer family)</span>
+      </label>
+
+      <div class="grid2">
+        <label class="field">
+          <span class="lbl">4-room &amp; below grant (S$)</span>
+          <input type="text" inputmode="numeric" class="money" id="grant4" value="25,000" />
+        </label>
+        <label class="field">
+          <span class="lbl">5-room &amp; above grant (S$)</span>
+          <input type="text" inputmode="numeric" class="money" id="grant5" value="10,000" />
+        </label>
+      </div>
+
+      <label class="field">
+        <span class="lbl">Proximity Housing Grant if within 4&nbsp;km (S$)</span>
+        <input type="text" inputmode="numeric" class="money" id="grantProx" value="10,000" />
+      </label>
+
+      <label class="field">
+        <span class="lbl">Other grants, e.g. EHG (S$)</span>
+        <input type="text" inputmode="numeric" class="money" id="grantOther" value="0" />
+      </label>
+    </section>
+
+    <!-- ===== 5. PROXIMITY ===== -->
+    <section class="card">
+      <h2><span class="num">5</span> Proximity check</h2>
+      <p class="cardnote">Enter both postal codes to measure the straight-line distance and see it on the map.</p>
+
+      <div class="grid2">
+        <label class="field">
+          <span class="lbl">New flat postal code</span>
+          <input type="text" id="postalNew" inputmode="numeric" maxlength="6" placeholder="560123" />
+        </label>
+        <label class="field">
+          <span class="lbl">Parents' / current flat postal code</span>
+          <input type="text" id="postalOld" inputmode="numeric" maxlength="6" placeholder="520321" />
+        </label>
+      </div>
+
+      <button type="button" id="measureBtn" class="btn-secondary">Measure distance</button>
+      <div id="geoStatus" class="geostatus" role="status"></div>
+
+      <div id="distanceResult" class="distbox" hidden>
+        <div class="distnum"><span id="distValue">—</span> <span class="unit">km</span></div>
+        <div id="distVerdict" class="verdict"></div>
+        <div class="addrpair">
+          <div><span class="tag tag-new">New</span> <span id="addrNew"></span></div>
+          <div><span class="tag tag-old">Current</span> <span id="addrOld"></span></div>
+        </div>
+      </div>
+
+      <div id="map" class="map" aria-label="Map showing both flats"></div>
+    </section>
+
+    <!-- ===== 6. STAMP DUTY ===== -->
+    <section class="card">
+      <h2><span class="num">6</span> Stamp duty</h2>
+      <label class="check">
+        <input type="checkbox" id="bsdFromCpf" />
+        <span>Pay Buyer's Stamp Duty from CPF OA (if any balance is left over)</span>
+      </label>
+      <span class="hint">For resale flats most buyers pay BSD in cash first and reimburse from CPF later. Leave unticked for the conservative cash figure.</span>
+      <div id="bsdBreakdown" class="bsdtable"></div>
+    </section>
+  </form>
+
+  <!-- ===== RESULTS ===== -->
+  <section class="results">
+    <div class="headline">
+      <span class="headline-lbl">Cash you need to fork out</span>
+      <span class="headline-num" id="cashOut">S$0</span>
+      <span class="headline-sub" id="cashSub"></span>
+    </div>
+
+    <div class="stackcard" id="stackCard"></div>
+
+    <div class="rescols">
+      <div class="rescol">
+        <div class="ratiocard" id="ratioCard"></div>
+        <div class="notecard" id="notes"></div>
+      </div>
+      <div class="rescol">
+        <table class="breakdown" id="breakdown"></table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<section id="printReport" class="printonly"></section>
+
+<footer class="wrap foot">
+  <section class="refs">
+    <h2 class="refs-h">Where these figures come from</h2>
+    <div class="refs-grid">
+
+      <div class="refgroup">
+        <h3>Stamp duty</h3>
+        <ul>
+          <li><a href="https://www.iras.gov.sg/taxes/stamp-duty/for-property/buying-or-acquiring-property/buyer&#39;s-stamp-duty-(bsd)" target="_blank" rel="noopener">IRAS — Buyer&rsquo;s Stamp Duty (BSD)</a><span>The 1–6% banded rates effective 20 Feb 2023, used to compute the duty.</span></li>
+          <li><a href="https://www.iras.gov.sg/quick-links/tax-rates/stamp-duty" target="_blank" rel="noopener">IRAS — Stamp duty rates</a><span>Current rate tables, including ABSD (not modelled here).</span></li>
+        </ul>
+      </div>
+
+      <div class="refgroup">
+        <h3>Grants</h3>
+        <ul>
+          <li><a href="https://www.hdb.gov.sg/buying-a-flat/flat-grant-and-loan-eligibility/couples-and-families/cpf-housing-grants" target="_blank" rel="noopener">HDB — CPF Housing Grants for resale flats</a><span>Family Grant and EHG amounts and eligibility for first-timer families.</span></li>
+          <li><a href="https://www.hdb.gov.sg/buying-a-flat/flat-grant-and-loan-eligibility/couples-and-families/proximity-housing-grant" target="_blank" rel="noopener">HDB — Proximity Housing Grant</a><span>The 4&nbsp;km rule and the amounts for living with or near parents.</span></li>
+        </ul>
+      </div>
+
+      <div class="refgroup">
+        <h3>Loan limits</h3>
+        <ul>
+          <li><a href="https://www.mas.gov.sg/regulation/explainers/new-housing-loans/msr-and-tdsr-rules" target="_blank" rel="noopener">MAS — MSR and TDSR rules</a><span>MSR capped at 30% for HDB flats and new ECs; TDSR at 55%.</span></li>
+          <li><a href="https://www.mas.gov.sg/regulation/explainers/new-housing-loans/loan-tenure-and-loan-to-value-limits" target="_blank" rel="noopener">MAS — Loan tenure and LTV limits</a><span>The 75%/55% LTV tiers and the tenure and age-65 tests.</span></li>
+        </ul>
+      </div>
+
+      <div class="refgroup">
+        <h3>CPF and lease</h3>
+        <ul>
+          <li><a href="https://www.cpf.gov.sg/member/home-ownership" target="_blank" rel="noopener">CPF Board — Home ownership</a><span>Using OA savings for property, and the Valuation Limit.</span></li>
+          <li><a href="https://www.cpf.gov.sg/member" target="_blank" rel="noopener">CPF Board — Member services</a><span>Check your actual OA balance before relying on the figure entered here.</span></li>
+        </ul>
+      </div>
+
+      <div class="refgroup">
+        <h3>Map and distance</h3>
+        <ul>
+          <li><a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener">OneMap</a><span>Singapore Land Authority basemap and address data.</span></li>
+          <li><a href="https://www.onemap.gov.sg/apidocs/" target="_blank" rel="noopener">OneMap API documentation</a><span>The search endpoint that turns a postal code into coordinates.</span></li>
+          <li><a href="https://leafletjs.com/" target="_blank" rel="noopener">Leaflet</a><span>The open-source library rendering the map.</span></li>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="disclaim">
+    <p>Estimates only. BSD tiers are the rates effective 20 Feb 2023. MSR is capped at 30% and TDSR at 55% of gross monthly income, assessed at the higher of 4% p.a. or the prevailing rate. The age-95 lease pro-ration applies to CPF usage on any loan, and to LTV on an HDB concessionary loan only. Grant amounts, LTV limits and lease rules change — confirm with HDB, CPF Board, MAS and IRAS before committing. Distance is straight-line, the basis HDB uses for the 4&nbsp;km proximity condition.</p>
+    <p>Not included: option fee and deposit, conveyancing and legal fees, HDB resale application fees, valuation, agent commission, resale levy and cash-over-valuation.</p>
+    <p class="attrib">Geocoding and map data &copy; <a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener">OneMap</a>, Singapore Land Authority. &nbsp;·&nbsp; Last updated <time id="lastUpdated"></time>.</p>
+  </div>
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
