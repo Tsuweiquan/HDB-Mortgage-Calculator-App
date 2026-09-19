@@ -13,13 +13,8 @@
 <body>
 <header class="topbar">
   <div class="wrap">
-    <div class="topbar-row">
-      <div>
-        <h1>HDB Cash Outlay Calculator</h1>
-        <p class="sub">How much cash do you actually need to fork out on completion day?</p>
-      </div>
-      <button type="button" id="pdfBtn" class="btn-primary">Export PDF</button>
-    </div>
+    <h1>HDB Cash Outlay Calculator</h1>
+    <p class="sub">How much cash do you actually need to fork out on completion day?</p>
   </div>
 </header>
 
@@ -265,6 +260,11 @@
       </div>
     </div>
   </section>
+
+  <section class="exportbar">
+    <button type="button" id="pdfBtn" class="btn-primary">Export PDF</button>
+    <p>Saves everything above as an A4 document. Choose <strong>Save as PDF</strong> as the destination in the print dialog.</p>
+  </section>
 </main>
 
 <section id="printReport" class="printonly"></section>
@@ -318,6 +318,20 @@
 
     </div>
   </section>
+
+  <div class="privacy">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M9 1.9l5.6 2.2v4.3c0 3.3-2.3 6.3-5.6 7.7-3.3-1.4-5.6-4.4-5.6-7.7V4.1z"></path><path d="M6.4 9l1.8 1.8 3.4-3.6"></path></svg>
+    <div>
+      <strong>Nothing you type is saved or sent anywhere.</strong>
+      Every figure on this page is calculated in your own browser in JavaScript. There is no
+      database, no account, no analytics and no server doing any of the work — the site is
+      static files served by GitHub&nbsp;Pages. Close the tab and the numbers are gone; reload
+      and you start from the defaults again. The only request that ever leaves your browser is
+      the postal-code lookup you trigger yourself with <em>Measure distance</em>, which sends
+      just those two postal codes to Singapore&rsquo;s OneMap service to fetch coordinates and
+      map tiles. Your price, income, CPF balance and age never leave the device.
+    </div>
+  </div>
 
   <div class="disclaim">
     <p>Estimates only. BSD tiers are the rates effective 20 Feb 2023. MSR is capped at 30% and TDSR at 55% of gross monthly income, assessed at the higher of 4% p.a. or the prevailing rate. The age-95 lease pro-ration applies to CPF usage on any loan, and to LTV on an HDB concessionary loan only. Grant amounts, LTV limits and lease rules change — confirm with HDB, CPF Board, MAS and IRAS before committing. Distance is straight-line, the basis HDB uses for the 4&nbsp;km proximity condition.</p>

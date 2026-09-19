@@ -238,6 +238,9 @@ single stress-tested instalment, and persistence of user data between sessions.
 - **REQ-UI-6** — The system shall render correctly at viewport widths down to 400 px without horizontal scrolling of the page body, and shall never require the viewer to zoom out to read the results.
 - **REQ-UI-14** — The system shall keep a side gutter of at least 16 px at every viewport width.
 - **REQ-UI-15** — Where a table's content cannot fit the viewport, the system shall scroll that table inside its own container rather than widening the page.
+- **REQ-UI-16** — The system shall size every grid track and flex item so it may shrink below its content's intrinsic minimum, so that no descendant can widen the page.
+- **REQ-UI-17** — The system shall never clip or hide horizontal overflow on the document or body, since that conceals content instead of fitting it and interferes with pinch-zoom.
+- **REQ-UI-18** — The system shall place the PDF export control after the results and before the references.
 - **REQ-UI-7** — Where the viewer's operating system requests a dark colour scheme, the system shall render a dark palette.
 - **REQ-UI-8** — The system shall display a disclaimer stating that the figures are estimates, that rates and grants change, and that HDB, CPF Board and IRAS are the authoritative sources.
 
@@ -247,7 +250,9 @@ single stress-tested instalment, and persistence of user data between sessions.
 
 - **REQ-NFR-1** — The system shall run as a static client-side web application requiring no backend server of its own.
 - **REQ-NFR-2** — The system shall complete a recalculation within 50 ms of an input change on commodity hardware.
-- **REQ-NFR-3** — The system shall transmit no user data to any third party other than the two postal codes sent to the OneMap geocoding API.
+- **REQ-NFR-3** — The system shall transmit no user data to any third party other than the two postal codes sent to the OneMap geocoding API, and only when the user triggers the distance measurement.
+- **REQ-NFR-7** — The system shall perform every calculation in the browser, with no server-side processing, no database and no account.
+- **REQ-NFR-8** — The system shall state plainly on the page, and in the exported PDF, that no data is saved and that the figures never leave the device apart from the postal-code lookup.
 - **REQ-NFR-4** — The system shall persist no user data between sessions.
 - **REQ-NFR-5** — If any third-party resource (map tiles, geocoding, Leaflet) fails to load, then the system shall keep the full calculator functional apart from distance measurement.
 - **REQ-NFR-6** — The system shall keep all regulatory constants — BSD tiers, the 4 km proximity threshold, the 5% bank-loan cash floor, the MSR and TDSR caps, the stress-rate floor, the lease thresholds and the grant presets — in named, single-source declarations so that a rate change is a one-line edit.
@@ -295,7 +300,7 @@ Values requiring review whenever policy changes.
 | Cash outlay | REQ-CALC-1..10 | `app.js` → `compute`, `renderBreakdown`, `renderNotes` |
 | Visual design | REQ-VIS-1..8 | `styles.css` tokens; `app.js` → `renderCapitalStack`, `renderLeaseBox` |
 | PDF export | REQ-PDF-1..8 | `index.html` header + `#printReport`, `app.js` → `buildPrintReport`, `exportPdf`; `styles.css` `@media print` |
-| Interaction | REQ-UI-1..15 | `app.js` → `recalc`, `moneyValue`, `setMoney`, `formatMoneyField`, wiring; `styles.css` |
+| Interaction | REQ-UI-1..18 | `app.js` → `recalc`, `moneyValue`, `setMoney`, `formatMoneyField`, wiring; `styles.css` |
 
 ---
 
@@ -330,6 +335,8 @@ buyer 35, gross income $9,000/month, no other debt, HDB loan, 75% LTV, 25-year t
 | V-19 | V-17 with the target manually set to 60% | Effective LTV 60%; LTV cap $540,000 |
 | V-20 | V-17 with the target manually set to 80% | Capped at 75%; the rules override the request |
 | V-21 | Export PDF | Report renders with all seven sections; header, form and map hidden |
+| V-24 | Load at 320, 375, 393 and 430 px | `document.scrollWidth` equals the viewport at every width; no element outside the viewport bar map tiles clipped by the map container |
+| V-25 | Defaults, instalment at 2.6% vs 4% | S$1,289/month actually paid against S$1,500 assessed; total interest S$102,591 over 25 years |
 
 All sixteen were executed against the implementation on 2026-09-19 and passed.
 

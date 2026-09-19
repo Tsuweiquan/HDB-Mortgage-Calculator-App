@@ -665,7 +665,10 @@ function buildPrintReport(r) {
       ['Plus stamp duty in cash', '+ ' + sgd(r.bsdCash)],
     ])}<tr class="pr-tot"><td>Total cash required</td><td>${sgd(r.cashNeeded)}</td></tr></table>
 
-    <p class="pr-foot">Estimates only. BSD tiers are the rates effective 20 February 2023. MSR is capped at
+    <p class="pr-foot"><strong>No data is saved.</strong> This calculator runs entirely in the browser
+    in JavaScript, served as static files by GitHub Pages. There is no database, no account and no
+    server-side processing; the only outbound request is the postal-code lookup to OneMap that you
+    trigger yourself. Estimates only. BSD tiers are the rates effective 20 February 2023. MSR is capped at
     30% and TDSR at 55% of gross monthly income, assessed at the higher of 4% p.a. or the prevailing rate.
     Grant amounts, LTV limits and lease rules change — confirm with HDB, CPF Board, MAS and IRAS before
     committing. Distance is straight-line, the basis HDB uses for the 4 km proximity condition.
