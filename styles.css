@@ -71,6 +71,7 @@
 }
 
 *{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 
 body{
   margin:0;background:var(--bg);color:var(--ink);
@@ -392,7 +393,10 @@ input.money{font-variant-numeric:tabular-nums;font-weight:600}
   .stack-legend{gap:10px 16px}
   .stack-legend div{font-size:12.5px;gap:7px}
 
-  .breakdown{font-size:13px}
+  .tablewrap{overflow-x:visible}
+  .breakdown{font-size:13px;table-layout:fixed;width:100%}
+  .breakdown td:first-child{width:56%;overflow-wrap:break-word;hyphens:auto}
+  .breakdown td:last-child{width:44%}
   .breakdown td{padding:10px 12px}
   .breakdown .sect td{padding:9px 12px}
   .breakdown .detail td:first-child{padding-left:26px}

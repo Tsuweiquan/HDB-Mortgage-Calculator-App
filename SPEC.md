@@ -237,7 +237,8 @@ single stress-tested instalment, and persistence of user data between sessions.
 - **REQ-UI-5** — While the viewport is narrower than 900 px, the system shall stack the results panel below the form and shall not pin it.
 - **REQ-UI-6** — The system shall render correctly at viewport widths down to 400 px without horizontal scrolling of the page body, and shall never require the viewer to zoom out to read the results.
 - **REQ-UI-14** — The system shall keep a side gutter of at least 16 px at every viewport width.
-- **REQ-UI-15** — Where a table's content cannot fit the viewport, the system shall scroll that table inside its own container rather than widening the page.
+- **REQ-UI-15** — Where a table's content cannot fit the viewport, the system shall scroll that table inside its own container rather than widening the page. On phone widths no table shall require that scroll: the breakdown shall use a fixed table layout with proportional columns so the label wraps instead of widening the table.
+- **REQ-UI-19** — The system shall pin text scaling with `text-size-adjust: 100%`, so that a mobile browser's automatic text inflation cannot widen the layout.
 - **REQ-UI-16** — The system shall size every grid track and flex item so it may shrink below its content's intrinsic minimum, so that no descendant can widen the page.
 - **REQ-UI-17** — The system shall never clip or hide horizontal overflow on the document or body, since that conceals content instead of fitting it and interferes with pinch-zoom.
 - **REQ-UI-18** — The system shall place the PDF export control after the results and before the references.
@@ -300,7 +301,7 @@ Values requiring review whenever policy changes.
 | Cash outlay | REQ-CALC-1..10 | `app.js` → `compute`, `renderBreakdown`, `renderNotes` |
 | Visual design | REQ-VIS-1..8 | `styles.css` tokens; `app.js` → `renderCapitalStack`, `renderLeaseBox` |
 | PDF export | REQ-PDF-1..8 | `index.html` header + `#printReport`, `app.js` → `buildPrintReport`, `exportPdf`; `styles.css` `@media print` |
-| Interaction | REQ-UI-1..18 | `app.js` → `recalc`, `moneyValue`, `setMoney`, `formatMoneyField`, wiring; `styles.css` |
+| Interaction | REQ-UI-1..19 | `app.js` → `recalc`, `moneyValue`, `setMoney`, `formatMoneyField`, wiring; `styles.css` |
 
 ---
 
@@ -336,6 +337,7 @@ buyer 35, gross income $9,000/month, no other debt, HDB loan, 75% LTV, 25-year t
 | V-20 | V-17 with the target manually set to 80% | Capped at 75%; the rules override the request |
 | V-21 | Export PDF | Report renders with all seven sections; header, form and map hidden |
 | V-24 | Load at 320, 375, 393 and 430 px | `document.scrollWidth` equals the viewport at every width; no element outside the viewport bar map tiles clipped by the map container |
+| V-26 | Breakdown table at 320/393/430 px, and at 393 px with text inflated 20% and 40% | Table width equals its container at every case; neither the page nor the table scrolls horizontally; no cell overflows its column |
 | V-25 | Defaults, instalment at 2.6% vs 4% | S$1,289/month actually paid against S$1,500 assessed; total interest S$102,591 over 25 years |
 
 All sixteen were executed against the implementation on 2026-09-19 and passed.
