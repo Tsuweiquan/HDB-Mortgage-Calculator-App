@@ -69,6 +69,7 @@ const LEASE_TAIL_YEARS    = 20;   // lease that must remain at loan maturity (MA
 const MSR_CAP             = 0.30; // Mortgage Servicing Ratio — HDB flats & new ECs
 const TDSR_CAP            = 0.55; // Total Debt Servicing Ratio — all property loans
 const STRESS_RATE_FLOOR   = 4.0;  // % p.a. floor for MSR/TDSR assessment
+const HDB_CONCESSIONARY   = 2.6;  // % p.a. — CPF OA rate + 0.1%
 const AGE_TENURE_LIMIT    = 65;   // age + tenure beyond this reduces LTV
 const MAX_TENURE          = { hdb: 25, bank: 30 };
 const FULL_LTV_MAX_TENURE = 25;   // bank loan on an HDB flat: beyond this, LTV 55%
@@ -165,6 +166,7 @@ function readInputs() {
     loanAmount: mny('loanAmount'),
     tenureReq:  Math.max(1, Number($('tenure').value) || 1),
     stressRate: Math.max(0, Number($('stressRate').value) || 0),
+    rateActual: Math.max(0, Number($('rate').value) || 0),
     cpfOa:      mny('cpfOa'),
     grantOn:    $('grantEligible').checked,
     grant4:     mny('grant4'),
@@ -230,7 +232,9 @@ function compute(i) {
   const loan = Math.max(0, Math.min(...caps.map(c => c.value)));
 
   /* ---- servicing ratios on the loan actually granted ---- */
-  const instalment = monthlyPayment(loan, rate, tenure);
+  const instalment = monthlyPayment(loan, rate, tenure);           // assessed, for MSR/TDSR
+  const instalmentActual = monthlyPayment(loan, i.rateActual, tenure); // what is actually paid
+  const totalInterest = instalmentActual * tenure * 12 - loan;
   const msrPct  = incomeKnown ? (instalment / i.income) * 100 : null;
   const tdsrPct = incomeKnown ? ((instalment + i.otherDebt) / i.income) * 100 : null;
 
@@ -278,7 +282,8 @@ function compute(i) {
   return {
     ...i, lease, tenure, tenureMax, tenureClamped, tenureBinding,
     ltvBase, ltvCapPct, ltvEffective, ltvReducedByAge, ltvProRated, capLtvLoan, capMsrLoan, capTdsrLoan,
-    msrApplies, incomeKnown, rate, instalment, msrPct, tdsrPct, binding, loan,
+    msrApplies, incomeKnown, rate, instalment, instalmentActual, totalInterest,
+    msrPct, tdsrPct, binding, loan,
     downpayment, flatGrant, flatGrantLabel, proxGrant, grantsTotal,
     bsd, bsdRows, cpfVlCap, cpfPool, cpfBlocked, minCash, cpfAppliedToDp,
     cashForDownpayment, grantsApplied, cpfOaApplied, grantsUnused, cpfOaUnused,
@@ -352,7 +357,8 @@ function renderMsrBox(r) {
   };
   $('msrBox').innerHTML = `<div class="ib ${r.msrPct > 30.01 ? 'bad' : 'ok'}">
     <span class="ib-h">Servicing ratios at ${r.rate}% over ${r.tenure} years</span>
-    Instalment <strong>${sgd(r.instalment)}/month</strong> on a ${sgd(r.loan)} loan.
+    Assessed instalment <strong>${sgd(r.instalment)}/month</strong> on a ${sgd(r.loan)} loan.
+    You would actually pay <strong>${sgd(r.instalmentActual)}/month</strong> at ${trimPct(r.rateActual)}%.
     ${bar('MSR', r.msrPct, 30, '30%')}
     ${bar('TDSR', r.tdsrPct, 55, '55%')}
     MSR caps the loan at <strong>${sgd(r.capMsrLoan)}</strong>; TDSR at ${sgd(r.capTdsrLoan)}.
@@ -372,7 +378,9 @@ function renderRatioCard(r) {
   $('ratioCard').innerHTML = `
     <div class="rc-row"><span>Loan granted</span><strong>${sgd(r.loan)}</strong></div>
     <div class="rc-row"><span>Effective LTV</span><strong>${pct(r.price ? (r.loan / r.price) * 100 : 0)}</strong></div>
-    <div class="rc-row"><span>Monthly instalment</span><strong>${sgd(r.instalment)}</strong></div>
+    <div class="rc-row"><span>Monthly instalment at ${trimPct(r.rateActual)}%</span><strong>${sgd(r.instalmentActual)}</strong></div>
+    <div class="rc-row"><span>Assessed at ${trimPct(r.rate)}% for MSR</span><strong>${sgd(r.instalment)}</strong></div>
+    <div class="rc-row"><span>Total interest over ${r.tenure} years</span><strong>${sgd(r.totalInterest)}</strong></div>
     <div class="rc-row"><span>MSR</span><strong class="${r.msrPct > 30.01 ? 'over' : ''}">${r.msrPct === null ? '—' : pct(r.msrPct)}</strong></div>
     <div class="rc-row"><span>TDSR</span><strong class="${r.tdsrPct > 55.01 ? 'over' : ''}">${r.tdsrPct === null ? '—' : pct(r.tdsrPct)}</strong></div>
     <div class="rc-bind">Loan is capped by <strong>${bindLabel}</strong></div>`;
@@ -584,7 +592,8 @@ function buildPrintReport(r) {
     r.otherDebt > 0 && ['Other monthly debts', sgd(r.otherDebt)],
     ['Loan type', r.loanType === 'hdb' ? 'HDB concessionary loan' : 'Bank loan'],
     ['Loan tenure', `${r.tenure} years (max ${r.tenureMax}, set by the ${r.tenureBinding})`],
-    ['Stress-test rate', `${r.rate}% p.a.`],
+    ['Interest rate', `${trimPct(r.rateActual)}% p.a.`],
+    ['Stress-test rate', `${trimPct(r.rate)}% p.a.`],
     ['CPF Ordinary Account', sgd(r.cpfOa)],
   ]);
 
@@ -603,7 +612,9 @@ function buildPrintReport(r) {
     r.incomeKnown && ['TDSR cap (55%)', sgd(r.capTdsrLoan)],
     ['Loan granted', `${sgd(r.loan)} — capped by ${r.binding.key === 'request' ? 'your request' : r.binding.label}`],
     ['Effective LTV', trimPct(r.price ? (r.loan / r.price) * 100 : 0) + '%'],
-    ['Monthly instalment', `${sgd(r.instalment)} at ${r.rate}% over ${r.tenure} years`],
+    ['Monthly instalment', `${sgd(r.instalmentActual)} at ${trimPct(r.rateActual)}% over ${r.tenure} years`],
+    ['Total interest', `${sgd(r.totalInterest)} over ${r.tenure} years`],
+    ['Instalment assessed for MSR', `${sgd(r.instalment)} at ${trimPct(r.rate)}%`],
     r.incomeKnown && ['MSR', `${r.msrPct.toFixed(1)}% of gross income (cap 30%)`],
     r.incomeKnown && ['TDSR', `${r.tdsrPct.toFixed(1)}% of gross income (cap 55%)`],
   ]);

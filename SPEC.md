@@ -107,6 +107,10 @@ single stress-tested instalment, and persistence of user data between sessions.
 
 - **REQ-MSR-1** — The system shall provide numeric inputs for gross monthly household income, pre-filled with a default of $13,000, and for other monthly debt repayments, defaulting to 0.
 - **REQ-MSR-2** — The system shall provide a stress-test rate input defaulting to 4% p.a.
+- **REQ-MSR-16** — The system shall provide a separate input for the interest rate the buyer will actually pay, defaulting to 2.6% p.a., the HDB concessionary rate (CPF OA rate + 0.1%).
+- **REQ-MSR-17** — The system shall compute and display the monthly instalment at the actual interest rate, distinctly from the instalment assessed at the stress-test rate, and shall label which rate each figure uses.
+- **REQ-MSR-18** — The system shall display the total interest payable over the loan tenure at the actual interest rate.
+- **REQ-MSR-19** — The system shall assess MSR and TDSR at the stress-test rate only, never at the actual rate.
 - **REQ-MSR-3** — The system shall cap the Mortgage Servicing Ratio at 30% of gross monthly income.
 - **REQ-MSR-4** — Where the property is an HDB flat or an EC whose MOP has not expired, the system shall apply the MSR cap. Since the system models HDB flats only, MSR shall always apply.
 - **REQ-MSR-5** — The system shall cap the Total Debt Servicing Ratio at 55% of gross monthly income, inclusive of other monthly debt repayments.
@@ -231,7 +235,9 @@ single stress-tested instalment, and persistence of user data between sessions.
 - **REQ-UI-13** — The system shall apply monetary formatting only to money fields, leaving year, age, tenure, percentage and rate inputs unformatted.
 - **REQ-UI-4** — While the viewport is at least 900 px wide, the system shall present the form and the results side by side with the results panel pinned while scrolling.
 - **REQ-UI-5** — While the viewport is narrower than 900 px, the system shall stack the results panel below the form and shall not pin it.
-- **REQ-UI-6** — The system shall render correctly at viewport widths down to 400 px without horizontal scrolling of the page body.
+- **REQ-UI-6** — The system shall render correctly at viewport widths down to 400 px without horizontal scrolling of the page body, and shall never require the viewer to zoom out to read the results.
+- **REQ-UI-14** — The system shall keep a side gutter of at least 16 px at every viewport width.
+- **REQ-UI-15** — Where a table's content cannot fit the viewport, the system shall scroll that table inside its own container rather than widening the page.
 - **REQ-UI-7** — Where the viewer's operating system requests a dark colour scheme, the system shall render a dark palette.
 - **REQ-UI-8** — The system shall display a disclaimer stating that the figures are estimates, that rates and grants change, and that HDB, CPF Board and IRAS are the authoritative sources.
 
@@ -262,6 +268,7 @@ Values requiring review whenever policy changes.
 | MSR cap | 30% | MAS — HDB flats & new ECs | `app.js` → `MSR_CAP` |
 | TDSR cap | 55% | MAS — all property loans | `app.js` → `TDSR_CAP` |
 | Stress-test rate floor | 4.0% p.a. | MAS | `app.js` → `STRESS_RATE_FLOOR` |
+| HDB concessionary rate | 2.6% p.a. | HDB — CPF OA rate + 0.1% | `app.js` → `HDB_CONCESSIONARY` |
 | Age + tenure limit | 65 | MAS | `app.js` → `AGE_TENURE_LIMIT` |
 | Max tenure | 25 yr HDB / 30 yr bank | HDB / MAS | `app.js` → `MAX_TENURE` |
 | Full-LTV tenure limit | 25 years | MAS Notice 632 | `app.js` → `FULL_LTV_MAX_TENURE` |
@@ -280,7 +287,7 @@ Values requiring review whenever policy changes.
 |---|---|---|
 | Buyer income & flat details | REQ-FLAT-1..7 | `index.html` §0–1, `app.js` → `readInputs` |
 | Lease, tenure & LTV | REQ-LOAN-1..22 | `app.js` → `leaseProfile`, `compute`, `renderLeaseBox`, `renderTenureBox` |
-| MSR & TDSR | REQ-MSR-1..15 | `index.html` §0 & §2, `app.js` → `monthlyPayment`, `principalFromPayment`, `compute`, `renderMsrBox`, `renderRatioCard` |
+| MSR & TDSR | REQ-MSR-1..19 | `index.html` §0 & §2, `app.js` → `monthlyPayment`, `principalFromPayment`, `compute`, `renderMsrBox`, `renderRatioCard` |
 | CPF | REQ-CPF-1..7 | `app.js` → `compute`, `renderCpfCapBox` |
 | Grants | REQ-GRANT-1..10 | `index.html` §4, `app.js` → `PRESETS`, `applyPreset`, `compute` |
 | Proximity | REQ-PROX-1..18 | `index.html` §5, `app.js` → `geocode`, `haversineKm`, `measure`, `initMap` |
@@ -288,7 +295,7 @@ Values requiring review whenever policy changes.
 | Cash outlay | REQ-CALC-1..10 | `app.js` → `compute`, `renderBreakdown`, `renderNotes` |
 | Visual design | REQ-VIS-1..8 | `styles.css` tokens; `app.js` → `renderCapitalStack`, `renderLeaseBox` |
 | PDF export | REQ-PDF-1..8 | `index.html` header + `#printReport`, `app.js` → `buildPrintReport`, `exportPdf`; `styles.css` `@media print` |
-| Interaction | REQ-UI-1..13 | `app.js` → `recalc`, `moneyValue`, `setMoney`, `formatMoneyField`, wiring; `styles.css` |
+| Interaction | REQ-UI-1..15 | `app.js` → `recalc`, `moneyValue`, `setMoney`, `formatMoneyField`, wiring; `styles.css` |
 
 ---
 

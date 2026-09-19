@@ -131,14 +131,21 @@
           <input type="number" id="tenure" min="1" max="30" step="1" value="25" />
         </label>
         <label class="field">
-          <span class="lbl">Stress-test rate</span>
+          <span class="lbl">Interest rate you will pay</span>
           <div class="inline">
-            <input type="number" id="stressRate" min="0" max="15" step="0.1" value="4" />
+            <input type="number" id="rate" min="0" max="15" step="0.05" value="2.6" />
             <span class="suffix">%</span>
           </div>
         </label>
       </div>
-      <span class="hint">MAS requires MSR and TDSR to be assessed at the higher of 4% p.a. or the prevailing rate.</span>
+      <label class="field">
+        <span class="lbl">Stress-test rate</span>
+        <div class="inline">
+          <input type="number" id="stressRate" min="0" max="15" step="0.1" value="4" />
+          <span class="suffix">%</span>
+        </div>
+      </label>
+      <span class="hint">The HDB concessionary rate is <strong>2.6%</strong>, pegged at 0.1% above the CPF OA rate; bank packages are usually higher. Your real instalment is computed at that rate, while MSR and TDSR must be assessed at the higher of 4% p.a. or the prevailing rate.</span>
 
       <div id="tenureBox" class="infobox"></div>
       <div id="msrBox" class="infobox"></div>
@@ -254,7 +261,7 @@
         <div class="notecard" id="notes"></div>
       </div>
       <div class="rescol">
-        <table class="breakdown" id="breakdown"></table>
+        <div class="tablewrap"><table class="breakdown" id="breakdown"></table></div>
       </div>
     </div>
   </section>
@@ -296,6 +303,7 @@
         <ul>
           <li><a href="https://www.cpf.gov.sg/member/home-ownership" target="_blank" rel="noopener">CPF Board — Home ownership</a><span>Using OA savings for property, and the Valuation Limit.</span></li>
           <li><a href="https://www.cpf.gov.sg/member" target="_blank" rel="noopener">CPF Board — Member services</a><span>Check your actual OA balance before relying on the figure entered here.</span></li>
+          <li><a href="https://www.hdb.gov.sg/managing-my-home/finances/loan-matters/interest-rate" target="_blank" rel="noopener">HDB — Housing loan interest rate</a><span>The 2.6% concessionary rate, pegged at 0.1% above the CPF OA rate.</span></li>
         </ul>
       </div>
 
