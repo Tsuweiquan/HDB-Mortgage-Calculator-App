@@ -180,6 +180,44 @@ input.money{font-variant-numeric:tabular-nums;font-weight:600}
 .verdict{margin-top:5px;font-size:13.5px;font-weight:600}
 .verdict.yes{color:var(--accent-ink)}
 .verdict.no{color:var(--warn)}
+.subsect{margin-top:22px;padding-top:18px;border-top:1px solid var(--line)}
+.subsect h3{margin:0 0 12px;font-size:15px;font-weight:700}
+.est-range{margin-top:4px;font-size:13px;color:var(--ink-soft)}
+.est-basis{margin-top:10px;font-size:12.5px;color:var(--ink-soft);line-height:1.55}
+.est-use{margin-top:16px}
+.est-use .inline{gap:8px}
+.est-use .inline input{flex:1 1 140px;min-width:0;max-width:none}
+.est-use .btn-secondary{flex:none;white-space:nowrap}
+@keyframes flash{0%{box-shadow:0 0 0 4px var(--accent);background:var(--accent-soft)}100%{box-shadow:0 0 0 0 transparent}}
+input.flash{animation:flash 1.4s ease-out}
+.comps{width:100%;table-layout:fixed;border-collapse:collapse;margin-top:14px;font-size:12px}
+.comps th{text-align:left;font-weight:700;color:var(--ink-soft);padding:6px 4px 6px 0;border-bottom:1px solid var(--line-strong)}
+.comps td{padding:7px 4px 7px 0;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.comps th:nth-child(n+3),.comps td:nth-child(n+3){text-align:right;font-variant-numeric:tabular-nums}
+.comps th:first-child{width:38%}
+.comps small{display:block;color:var(--ink-soft)}
+/* The tooltip anchors to the table, not the button, so it can never run off a phone screen. */
+#compsPage{position:relative}
+.tip{display:inline-block;vertical-align:middle}
+.tip-btn{
+  position:relative;width:18px;height:18px;padding:0;border-radius:50%;
+  border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-soft);
+  font:italic 700 11px/16px Georgia,serif;cursor:help;
+}
+.tip-btn::after{content:"";position:absolute;inset:-13px}  /* 44px touch target */
+.tip-btn:hover,.tip-btn:focus-visible{border-color:var(--accent);color:var(--accent-ink);outline:none}
+.tip-body{
+  display:none;position:absolute;left:0;right:0;top:38px;z-index:20;
+  padding:12px 14px;border-radius:12px;
+  background:var(--ink);color:var(--surface);box-shadow:0 8px 24px rgba(0,0,0,.18);
+  font-size:12px;font-weight:400;line-height:1.5;text-align:left;white-space:normal;
+}
+.tip-body ol{margin:6px 0;padding-left:18px}
+.tip-body li{margin:3px 0}
+.tip:hover .tip-body,.tip:focus-within .tip-body{display:block}
+.pager{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px;font-size:12.5px;color:var(--ink-soft)}
+.pager .chip{min-height:44px}
+.pager .chip:disabled{opacity:.4;cursor:default;border-color:var(--line-strong);color:var(--ink-soft)}
 .addrpair{margin-top:14px;display:grid;gap:7px;font-size:12.5px;color:var(--ink-soft)}
 .tag{display:inline-block;padding:2px 9px;border-radius:var(--r-pill);font-size:11px;font-weight:700;color:#fff}
 .tag-new{background:var(--cat-loan)}

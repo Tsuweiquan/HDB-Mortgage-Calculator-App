@@ -15,6 +15,8 @@ No backend, no build step, no dependencies to install — three static files.
 | **Lease** | 99-year lease from TOP; the age-95 pro-ration on CPF (any loan) and on LTV (HDB loan only); the 20-year financing floor and the tenure tail |
 | **Grants** | Flat-type grant by room type, plus a Proximity Housing Grant driven by a real distance measurement |
 | **Proximity** | Postal codes geocoded through OneMap, great-circle distance, 4 km threshold, plotted on a map |
+| **Valuation & COV** | Loan, LTV and CPF on the lower of price and valuation; cash over valuation paid in cash; BSD on the higher |
+| **Valuation estimate** | Recent HDB resale sales on the same street (data.gov.sg), adjusted for lease by Bala's Table, floor and size |
 | **CPF** | Drawn only as needed, capped by the pro-rated Valuation Limit, with the 5% hard-cash floor on bank loans |
 
 The loan granted is the **lowest** of the requested amount, the LTV cap, the MSR cap, the
@@ -53,7 +55,7 @@ a purchase. Every figure the calculator uses is linked from the references secti
 foot of the app.
 
 Not included: option fee and deposit, conveyancing and legal fees, HDB resale application
-fees, valuation, agent commission, resale levy, cash-over-valuation and ABSD.
+fees, valuation fees, agent commission, resale levy and ABSD.
 
 ## Credits
 

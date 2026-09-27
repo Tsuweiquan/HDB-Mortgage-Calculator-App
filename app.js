@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------
    HDB Cash Outlay Calculator
-   Implements SPEC.md v1.1
+   Implements SPEC.md v1.3
    --------------------------------------------------------------- */
 
 const $ = (id) => document.getElementById(id);
@@ -8,7 +8,7 @@ const CURRENT_YEAR = new Date().getFullYear();
 
 /* Bump this whenever the rules, rates or logic change. Deliberately a fixed
    date: rendering today's date would claim the app is current forever. */
-const LAST_UPDATED = '2026-09-19';
+const LAST_UPDATED = '2026-09-27';
 
 const sgd = (n, dp = 0) =>
   'S$' + Number(Math.round(n * 100) / 100).toLocaleString('en-SG', {
@@ -20,7 +20,7 @@ const pct = (n, dp = 1) => n.toFixed(dp) + '%';
    Money inputs are plain text fields carrying thousands separators
    (REQ-UI-9). These read and write them.
    --------------------------------------------------------------- */
-const MONEY_FIELDS = ['price', 'loanAmount', 'cpfOa', 'income', 'otherDebt',
+const MONEY_FIELDS = ['price', 'valuation', 'loanAmount', 'cpfOa', 'income', 'otherDebt',
                       'grant4', 'grant5', 'grantProx', 'grantOther'];
 
 /* Digits only, so "1,000,000" and "1000000" both parse. */
@@ -76,6 +76,30 @@ const FULL_LTV_MAX_TENURE = 25;   // bank loan on an HDB flat: beyond this, LTV 
 const HEADLINE_LTV        = 75;   // % — the published starting LTV
 const REDUCED_LTV         = 55;   // % — LTV when tenure/age conditions are breached
 const BANK_CASH_FLOOR     = 0.05; // 5% of price must be cash on a bank loan
+
+/* SLA Leasehold Table ("Bala's Table"): value of an n-year lease as a % of
+   freehold, index = years remaining (1..99). Transcribed from the Centre for
+   Liveable Cities commentary, Appendix 1. Used only to adjust comparable
+   sales for lease differences in the valuation estimate. */
+const BALA_TABLE = [0,
+   3.8,  7.5, 10.9, 14.1, 17.1, 19.9, 22.7, 25.2, 27.7, 30.0,
+  32.2, 34.3, 36.3, 38.2, 40.0, 41.8, 43.4, 45.0, 46.6, 48.0,
+  49.5, 50.8, 52.1, 53.4, 54.6, 55.8, 56.9, 58.0, 59.0, 60.0,
+  61.0, 61.9, 62.8, 63.7, 64.6, 65.4, 66.2, 67.0, 67.7, 68.5,
+  69.2, 69.8, 70.5, 71.2, 71.8, 72.4, 73.0, 73.6, 74.1, 74.7,
+  75.2, 75.7, 76.2, 76.7, 77.3, 77.9, 78.5, 79.0, 79.5, 80.0,
+  80.6, 81.2, 81.8, 82.4, 83.0, 83.6, 84.2, 84.5, 85.4, 86.0,
+  86.5, 87.0, 87.5, 88.0, 88.5, 89.0, 89.5, 90.0, 90.5, 91.0,
+  91.4, 91.8, 92.2, 92.6, 92.9, 93.3, 93.6, 94.0, 94.3, 94.6,
+  94.8, 95.0, 95.2, 95.4, 95.6, 95.7, 95.8, 95.9, 96.0,
+];
+
+/* Valuation estimate from HDB resale transactions (data.gov.sg). */
+const RESALE_DATASET      = 'd_8b84c4ee58e3cfc0ece0d773c8ca6abc';
+const COMPARABLE_MONTHS   = 12;    // look-back window for comparable sales
+const MIN_COMPARABLES     = 3;     // below this on the street, widen to the town
+const TOWN_LEASE_BAND     = 5;     // town fallback: lease start within ± this many years
+const FLOOR_STEP          = 0.007; // ≈2% per 3-storey band — industry rule of thumb, not HDB's
 
 const PRESETS = {
   custom: {
@@ -154,6 +178,7 @@ function readInputs() {
   const mny = (id) => Math.max(0, moneyValue(id));
   return {
     price:      mny('price'),
+    valuation:  mny('valuation'),
     roomType:   $('roomType').value,
     topYear:    Number($('topYear').value) || CURRENT_YEAR,
     age:        Math.min(80, Math.max(21, Number($('age').value) || 21)),
@@ -179,6 +204,13 @@ function readInputs() {
 
 function compute(i) {
   const lease = leaseProfile(i.topYear, i.age);
+
+  /* ---- COV: the loan, LTV and CPF are all assessed on the lower of price
+         and valuation. The excess is cash only — no loan, CPF or grants.
+         A valuation of 0 means none entered yet, so it is taken as the price. ---- */
+  const valuationStated = i.valuation > 0;
+  const valuation = valuationStated ? Math.min(i.valuation, i.price) : i.price;
+  const cov = i.price - valuation;
 
   /* ---- tenure cap: shortest of policy max, age-65 rule, lease tail ---- */
   const capPolicy = MAX_TENURE[i.loanType];
@@ -206,7 +238,7 @@ function compute(i) {
   const ltvCapPct = !lease.financeable ? 0
                   : (ltvProRated ? ltvBase * lease.ratio : ltvBase);
   const ltvEffective = i.ltvAuto ? ltvCapPct : Math.max(0, Math.min(i.ltvPct, ltvCapPct));
-  const capLtvLoan = i.price * (ltvEffective / 100);
+  const capLtvLoan = valuation * (ltvEffective / 100);
 
   /* ---- MSR / TDSR: this is an HDB flat, so MSR always applies ---- */
   const rate = Math.max(i.stressRate, 0);
@@ -220,13 +252,13 @@ function compute(i) {
   const capTdsrLoan = incomeKnown ? principalFromPayment(tdsrInstalCap, rate, tenure) : Infinity;
 
   /* ---- the requested loan, then every cap applied ---- */
-  const requested = i.mode === 'manual' ? i.loanAmount : i.price * (i.ltvPct / 100);
+  const requested = i.mode === 'manual' ? i.loanAmount : valuation * (i.ltvPct / 100);
   const caps = [
     { key: 'request', label: i.mode === 'manual' ? 'your stated loan' : 'requested LTV', value: requested },
     { key: 'ltv',     label: 'LTV limit',   value: capLtvLoan },
     { key: 'msr',     label: 'MSR (30%)',   value: capMsrLoan },
     { key: 'tdsr',    label: 'TDSR (55%)',  value: capTdsrLoan },
-    { key: 'price',   label: 'flat price',  value: i.price },
+    { key: 'price',   label: cov > 0 ? 'valuation' : 'flat price', value: valuation },
   ];
   const binding = caps.reduce((a, b) => (b.value < a.value ? b : a));
   const loan = Math.max(0, Math.min(...caps.map(c => c.value)));
@@ -238,8 +270,9 @@ function compute(i) {
   const msrPct  = incomeKnown ? (instalment / i.income) * 100 : null;
   const tdsrPct = incomeKnown ? ((instalment + i.otherDebt) / i.income) * 100 : null;
 
-  /* ---- downpayment ---- */
+  /* ---- downpayment: COV on top of the valuation-based portion ---- */
   const downpayment = i.price - loan;
+  const dpWithinValuation = valuation - loan;
 
   /* ---- grants ---- */
   const bigFlat = i.roomType === '5' || i.roomType === 'exec';
@@ -249,18 +282,21 @@ function compute(i) {
   const grantsTotal = flatGrant + proxGrant + i.grantOther;
 
   /* ---- stamp duty ---- */
-  const { duty: bsd, rows: bsdRows } = buyerStampDuty(i.price);
+  /* BSD is charged on the higher of price and valuation. */
+  const bsdBase = Math.max(i.price, i.valuation);
+  const { duty: bsd, rows: bsdRows } = buyerStampDuty(bsdBase);
 
-  /* ---- CPF: Valuation Limit pro-rated by the same lease ratio ---- */
-  const cpfVlCap = lease.financeable ? i.price * lease.ratio : 0;
+  /* ---- CPF: Valuation Limit (lower of price and valuation) pro-rated by the lease ---- */
+  const cpfVlCap = lease.financeable ? valuation * lease.ratio : 0;
   const cpfPoolRaw = i.cpfOa + grantsTotal;
   const cpfPool = Math.min(cpfPoolRaw, cpfVlCap);
   const cpfBlocked = cpfPoolRaw - cpfPool;
 
   /* ---- cash floor for bank loans ---- */
-  const minCash = i.loanType === 'bank' ? i.price * BANK_CASH_FLOOR : 0;
+  const minCash = i.loanType === 'bank' ? valuation * BANK_CASH_FLOOR : 0;
 
-  const cpfUsableOnDp = Math.max(0, downpayment - minCash);
+  /* CPF can never touch the COV, so it only reaches the valuation portion. */
+  const cpfUsableOnDp = Math.max(0, dpWithinValuation - minCash);
   const cpfAppliedToDp = Math.min(cpfPool, cpfUsableOnDp);
   const cashForDownpayment = downpayment - cpfAppliedToDp;
 
@@ -277,10 +313,11 @@ function compute(i) {
   const bsdCash = bsd - bsdFromCpf;
 
   const cashNeeded = cashForDownpayment + bsdCash;
-  const shortfall = Math.max(0, downpayment - cpfPool);
+  const cashExCov = cashForDownpayment - cov;
+  const shortfall = Math.max(0, dpWithinValuation - cpfPool);
 
   return {
-    ...i, lease, tenure, tenureMax, tenureClamped, tenureBinding,
+    ...i, cov, valuation, valuationStated, valuationInput: i.valuation, bsdBase, lease, tenure, tenureMax, tenureClamped, tenureBinding,
     ltvBase, ltvCapPct, ltvEffective, ltvReducedByAge, ltvProRated, capLtvLoan, capMsrLoan, capTdsrLoan,
     msrApplies, incomeKnown, rate, instalment, instalmentActual, totalInterest,
     msrPct, tdsrPct, binding, loan,
@@ -288,7 +325,7 @@ function compute(i) {
     bsd, bsdRows, cpfVlCap, cpfPool, cpfBlocked, minCash, cpfAppliedToDp,
     cashForDownpayment, grantsApplied, cpfOaApplied, grantsUnused, cpfOaUnused,
     cpfLeftover: cpfLeftoverRaw - bsdFromCpf, bsdFromCpf, bsdCash,
-    cashNeeded, shortfall,
+    cashNeeded, cashExCov, shortfall,
     dpPct: i.price > 0 ? (downpayment / i.price) * 100 : 0,
   };
 }
@@ -372,12 +409,33 @@ function renderCpfCapBox(r) {
     so ${sgd(r.cpfBlocked)} of your OA and grants cannot be used towards the purchase.</div>`;
 }
 
+function renderCovBox(r) {
+  if (r.price <= 0) { $('covBox').innerHTML = ''; return; }
+  if (!r.valuationStated) {
+    $('covBox').innerHTML = `<div class="ib warn"><span class="ib-h">No valuation entered</span>
+      The calculation assumes the flat values at the ${sgd(r.price)} price, so there is no COV.</div>`;
+    return;
+  }
+  if (r.cov <= 0) {
+    const bsdNote = r.valuationInput > r.price
+      ? ` Stamp duty is charged on the higher valuation, ${sgd(r.valuationInput)}, adding ${sgd(r.bsd - buyerStampDuty(r.price).duty)}.`
+      : '';
+    $('covBox').innerHTML = `<div class="ib ok"><span class="ib-h">No cash over valuation</span>
+      The ${sgd(r.valuationInput)} valuation is at or above the ${sgd(r.price)} price, so the loan and CPF are
+      assessed on the full price and there is no cash top-up.${bsdNote}</div>`;
+    return;
+  }
+  /* COV itself is itemised in the breakdown and the notes. */
+  $('covBox').innerHTML = '';
+}
+
 function renderRatioCard(r) {
   if (r.price <= 0) { $('ratioCard').innerHTML = ''; return; }
   const bindLabel = r.binding.key === 'request' ? 'your request' : r.binding.label;
   $('ratioCard').innerHTML = `
+    ${r.cov > 0 ? `<div class="rc-row"><span>HDB valuation</span><strong>${sgd(r.valuation)}</strong></div>` : ''}
     <div class="rc-row"><span>Loan granted</span><strong>${sgd(r.loan)}</strong></div>
-    <div class="rc-row"><span>Effective LTV</span><strong>${pct(r.price ? (r.loan / r.price) * 100 : 0)}</strong></div>
+    <div class="rc-row"><span>Effective LTV${r.cov > 0 ? ' on valuation' : ''}</span><strong>${pct(r.valuation ? (r.loan / r.valuation) * 100 : 0)}</strong></div>
     <div class="rc-row"><span>Monthly instalment at ${trimPct(r.rateActual)}%</span><strong>${sgd(r.instalmentActual)}</strong></div>
     <div class="rc-row"><span>Assessed at ${trimPct(r.rate)}% for MSR</span><strong>${sgd(r.instalment)}</strong></div>
     <div class="rc-row"><span>Total interest over ${r.tenure} years</span><strong>${sgd(r.totalInterest)}</strong></div>
@@ -395,7 +453,7 @@ function renderCapitalStack(r) {
     { key: 'loan',  label: 'Housing loan', value: r.loan,               v: '--cat-loan',  ink: '--cat-loan' },
     { key: 'cpf',   label: 'CPF OA',       value: r.cpfOaApplied,       v: '--cat-cpf',   ink: '--cat-cpf-ink' },
     { key: 'grant', label: 'Grants',       value: r.grantsApplied,      v: '--cat-grant', ink: '--cat-grant-ink' },
-    { key: 'cash',  label: 'Your cash',    value: r.cashForDownpayment, v: '--cat-cash',  ink: '--cat-cash' },
+    { key: 'cash',  label: r.cov > 0 ? 'Your cash (incl. COV)' : 'Your cash', value: r.cashForDownpayment, v: '--cat-cash',  ink: '--cat-cash' },
   ].filter(s => s.value > 0.5);
 
   const total = segs.reduce((a, b) => a + b.value, 0) || 1;
@@ -424,7 +482,7 @@ function renderBsdTable(r) {
     `<tr><td class="muted">${(t.rate * 100).toFixed(0)}% on ${sgd(t.from)} – ${sgd(t.to)}</td><td>${sgd(t.amt)}</td></tr>`
   ).join('');
   $('bsdBreakdown').innerHTML =
-    `<table>${rows}<tr><td>Buyer's Stamp Duty</td><td>${sgd(r.bsd)}</td></tr></table>`;
+    `<table>${rows}<tr><td>Buyer's Stamp Duty${r.bsdBase > r.price ? ' (on valuation)' : ''}</td><td>${sgd(r.bsd)}</td></tr></table>`;
 }
 
 function renderBreakdown(r) {
@@ -437,7 +495,11 @@ function renderBreakdown(r) {
 
   h += sect('Purchase');
   h += row('Flat price', sgd(r.price));
-  h += row(`Loan (${pct(r.price ? (r.loan / r.price) * 100 : 0)} LTV)`, '− ' + sgd(r.loan),
+  if (r.cov > 0) {
+    h += `<tr class="detail"><td>HDB valuation</td><td>${sgd(r.valuation)}</td></tr>`;
+    h += `<tr class="detail"><td>Cash over valuation</td><td>${sgd(r.cov)}</td></tr>`;
+  }
+  h += row(`Loan (${pct(r.valuation ? (r.loan / r.valuation) * 100 : 0)} LTV${r.cov > 0 ? ' on valuation' : ''})`, '− ' + sgd(r.loan),
     '', r.binding.key !== 'request' ? `Capped by ${r.binding.label}.` : '');
   h += row(`<strong>Downpayment (${r.dpPct.toFixed(1)}%)</strong>`, '<strong>' + sgd(r.downpayment) + '</strong>', 'total');
 
@@ -465,13 +527,17 @@ function renderBreakdown(r) {
     h += `<tr class="sub"><td colspan="2">${sgd(r.grantsUnused)} of grant money is not needed for the downpayment and remains in the OA.</td></tr>`;
   }
   if (r.minCash > 0) {
-    h += `<tr class="sub"><td colspan="2">CPF is capped so that ${sgd(r.minCash)} (5% of price) stays in cash — required for bank loans.</td></tr>`;
+    h += `<tr class="sub"><td colspan="2">CPF is capped so that ${sgd(r.minCash)} (5% of ${r.cov > 0 ? 'valuation' : 'price'}) stays in cash — required for bank loans.</td></tr>`;
   }
   if (r.cpfBlocked > 0.5) {
     h += `<tr class="sub"><td colspan="2">${sgd(r.cpfBlocked)} blocked by the pro-rated Valuation Limit.</td></tr>`;
   }
 
   h += row('<strong>Cash for downpayment</strong>', '<strong>' + sgd(r.cashForDownpayment) + '</strong>', 'total');
+  if (r.cov > 0) {
+    h += `<tr class="detail"><td>Cash over valuation</td><td>${sgd(r.cov)}</td></tr>`;
+    h += `<tr class="detail"><td>Balance of downpayment</td><td>${sgd(r.cashExCov)}</td></tr>`;
+  }
 
   h += sect('Stamp duty');
   h += row("Buyer's Stamp Duty", sgd(r.bsd));
@@ -509,10 +575,15 @@ function renderNotes(r) {
   if (r.shortfall > 0) {
     n.push(`<div class="note"><strong>Shortfall of ${sgd(r.shortfall)}.</strong> Your usable CPF plus grants do not cover the downpayment, so the balance has to come from cash.</div>`);
   }
+  if (r.cov > 0) {
+    n.push(`<div class="note"><strong>Cash over valuation of ${sgd(r.cov)}.</strong> The loan and CPF are assessed on the ${sgd(r.valuation)} valuation, so the COV must be paid entirely in cash — no loan, CPF or grant can cover it.</div>`);
+  }
   if (r.minCash > 0) {
-    n.push(`<div class="note"><strong>Bank loan:</strong> at least ${sgd(r.minCash)} (5% of the price) must be paid in cash — CPF cannot be used for that portion.</div>`);
-  } else if (r.cashForDownpayment === 0 && r.price > 0) {
-    n.push(`<div class="note ok">Your CPF and grants cover the entire downpayment. Only stamp duty needs cash.</div>`);
+    n.push(`<div class="note"><strong>Bank loan:</strong> at least ${sgd(r.minCash)} (5% of the ${r.cov > 0 ? 'valuation' : 'price'}) must be paid in cash — CPF cannot be used for that portion.</div>`);
+  } else if (r.cashExCov <= 0.5 && r.price > 0) {
+    n.push(r.cov > 0
+      ? `<div class="note ok">Your CPF and grants cover the downpayment apart from the COV. Only the COV and stamp duty need cash.</div>`
+      : `<div class="note ok">Your CPF and grants cover the entire downpayment. Only stamp duty needs cash.</div>`);
   }
   if (r.cpfLeftover > 0 && r.price > 0) {
     n.push(`<div class="note ok"><strong>${sgd(r.cpfLeftover)}</strong> stays in your CPF OA after the purchase — useful as a monthly-instalment buffer.</div>`);
@@ -520,7 +591,7 @@ function renderNotes(r) {
   if (proximity.distanceKm === null && r.price > 0) {
     n.push(`<div class="note">Proximity grant not counted yet — enter both postal codes and hit <em>Measure distance</em>.</div>`);
   }
-  n.push(`<div class="note">Not included: option fee / deposit (paid earlier and offset at completion), conveyancing fees, HDB resale application fees, valuation, agent commission, resale levy and cash-over-valuation.</div>`);
+  n.push(`<div class="note">Not included: option fee / deposit (paid earlier and offset at completion), conveyancing fees, HDB resale application fees, valuation, agent commission and resale levy.</div>`);
 
   $('notes').innerHTML = n.join('');
 }
@@ -556,12 +627,13 @@ function recalc() {
   renderLtvField(r);
   $('cashOut').textContent = sgd(r.cashNeeded);
   $('cashSub').textContent = r.price > 0
-    ? `${sgd(r.cashForDownpayment)} downpayment + ${sgd(r.bsdCash)} stamp duty`
+    ? `${sgd(r.cashForDownpayment)} downpayment${r.cov > 0 ? ` (incl. ${sgd(r.cov)} COV)` : ''} + ${sgd(r.bsdCash)} stamp duty`
     : 'Enter a flat price to begin.';
   renderLeaseBox(r);
   renderTenureBox(r);
   renderMsrBox(r);
   renderCpfCapBox(r);
+  renderCovBox(r);
   renderRatioCard(r);
   renderCapitalStack(r);
   renderBsdTable(r);
@@ -586,6 +658,9 @@ function buildPrintReport(r) {
   const inputs = rows([
     ['Room type', roomLabel],
     ['Purchase price', sgd(r.price)],
+    ['Valuation', r.valuationStated ? sgd(r.valuationInput) : 'not stated — taken as the price'],
+    valEstimate && ['Valuation estimate', `${sgd(valEstimate.value)} (range ${sgd(valEstimate.low)} – ${sgd(valEstimate.high)}), median of ${valEstimate.comps.length} recent ${valEstimate.flatType.toLowerCase()} sales on ${valEstimate.scope === 'street' ? valEstimate.street : valEstimate.town}`],
+    r.cov > 0 && ['Cash over valuation', sgd(r.cov)],
     ['TOP year', `${r.topYear} — ${r.lease.remaining} years of lease remaining`],
     ['Age of youngest buyer', r.age],
     ['Gross monthly income', r.income ? sgd(r.income) : 'not stated'],
@@ -611,7 +686,7 @@ function buildPrintReport(r) {
     r.incomeKnown && ['MSR cap (30%)', sgd(r.capMsrLoan)],
     r.incomeKnown && ['TDSR cap (55%)', sgd(r.capTdsrLoan)],
     ['Loan granted', `${sgd(r.loan)} — capped by ${r.binding.key === 'request' ? 'your request' : r.binding.label}`],
-    ['Effective LTV', trimPct(r.price ? (r.loan / r.price) * 100 : 0) + '%'],
+    ['Effective LTV', trimPct(r.valuation ? (r.loan / r.valuation) * 100 : 0) + '%' + (r.cov > 0 ? ' of valuation' : '')],
     ['Monthly instalment', `${sgd(r.instalmentActual)} at ${trimPct(r.rateActual)}% over ${r.tenure} years`],
     ['Total interest', `${sgd(r.totalInterest)} over ${r.tenure} years`],
     ['Instalment assessed for MSR', `${sgd(r.instalment)} at ${trimPct(r.rate)}%`],
@@ -633,7 +708,7 @@ function buildPrintReport(r) {
     <div class="pr-hero">
       <span>Cash to fork out</span>
       <strong>${sgd(r.cashNeeded)}</strong>
-      <em>${sgd(r.cashForDownpayment)} downpayment + ${sgd(r.bsdCash)} stamp duty</em>
+      <em>${sgd(r.cashForDownpayment)} downpayment${r.cov > 0 ? ` (incl. ${sgd(r.cov)} COV)` : ''} + ${sgd(r.bsdCash)} stamp duty</em>
     </div>
 
     <h2>Inputs</h2>
@@ -662,18 +737,19 @@ function buildPrintReport(r) {
       ['Less CPF Ordinary Account', '− ' + sgd(r.cpfOaApplied)],
       ['Less housing grants', '− ' + sgd(r.grantsApplied)],
       ['Cash for downpayment', sgd(r.cashForDownpayment)],
+      r.cov > 0 && ['of which cash over valuation', sgd(r.cov)],
       ['Plus stamp duty in cash', '+ ' + sgd(r.bsdCash)],
     ])}<tr class="pr-tot"><td>Total cash required</td><td>${sgd(r.cashNeeded)}</td></tr></table>
 
     <p class="pr-foot"><strong>No data is saved.</strong> This calculator runs entirely in the browser
     in JavaScript, served as static files by GitHub Pages. There is no database, no account and no
-    server-side processing; the only outbound request is the postal-code lookup to OneMap that you
-    trigger yourself. Estimates only. BSD tiers are the rates effective 20 February 2023. MSR is capped at
+    server-side processing; the only outbound requests are the ones you trigger yourself: postal
+    codes to OneMap, and the flat's block, street and flat type to data.gov.sg for the valuation estimate. Estimates only. BSD tiers are the rates effective 20 February 2023. MSR is capped at
     30% and TDSR at 55% of gross monthly income, assessed at the higher of 4% p.a. or the prevailing rate.
     Grant amounts, LTV limits and lease rules change — confirm with HDB, CPF Board, MAS and IRAS before
     committing. Distance is straight-line, the basis HDB uses for the 4 km proximity condition.
     Not included: option fee, conveyancing and legal fees, HDB resale application fees, valuation,
-    agent commission, resale levy and cash-over-valuation.</p>`;
+    agent commission and resale levy.</p>`;
 }
 
 function exportPdf() {
@@ -699,7 +775,9 @@ async function geocode(postal) {
   const url = 'https://www.onemap.gov.sg/api/common/elastic/search'
     + `?searchVal=${encodeURIComponent(postal)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`OneMap returned ${res.status}`);
+  if (!res.ok) throw new Error(res.status === 429
+    ? 'OneMap is rate-limiting requests. Wait a minute and try again.'
+    : `OneMap returned ${res.status}`);
   const data = await res.json();
   const hit = (data.results || []).find(x => x.LATITUDE && x.LONGITUDE);
   if (!hit) {
@@ -708,7 +786,8 @@ async function geocode(postal) {
     if (data.error) throw new Error(`OneMap: ${data.error}`);
     throw new Error(`No address found for postal code ${postal}`);
   }
-  return { lat: +hit.LATITUDE, lng: +hit.LONGITUDE, address: hit.ADDRESS || hit.SEARCHVAL };
+  return { lat: +hit.LATITUDE, lng: +hit.LONGITUDE, address: hit.ADDRESS || hit.SEARCHVAL,
+           block: hit.BLK_NO, road: hit.ROAD_NAME };
 }
 
 /* Great-circle distance — the straight-line basis HDB uses for the 4 km rule. */
@@ -788,6 +867,275 @@ async function measure() {
 }
 
 /* ===============================================================
+   VALUATION ESTIMATE  (REQ-VAL-1..12)
+   Direct comparison against recent HDB resale transactions,
+   each adjusted to the subject flat's lease, floor and size.
+   =============================================================== */
+let valEstimate = null;
+let compsPage = 0;
+const COMPS_PER_PAGE = 10;
+
+const FLAT_TYPE = { '2': '2 ROOM', '3': '3 ROOM', '4': '4 ROOM', '5': '5 ROOM', 'exec': 'EXECUTIVE' };
+
+/* HDB abbreviates street names ("ANG MO KIO AVE 10"); OneMap spells them out. */
+const STREET_WORDS = {
+  AVE: 'AVENUE', ST: 'STREET', RD: 'ROAD', DR: 'DRIVE', CRES: 'CRESCENT', CTRL: 'CENTRAL',
+  NTH: 'NORTH', STH: 'SOUTH', CL: 'CLOSE', PL: 'PLACE', TER: 'TERRACE', BT: 'BUKIT',
+  JLN: 'JALAN', KG: 'KAMPONG', LOR: 'LORONG', UPP: 'UPPER', TG: 'TANJONG', HTS: 'HEIGHTS',
+  PK: 'PARK', GDNS: 'GARDENS', MKT: 'MARKET', "C'WEALTH": 'COMMONWEALTH', CTR: 'CENTRE',
+};
+const streetTokens = (name) => String(name).toUpperCase().replace(/\./g, '')
+  .split(/\s+/).filter(Boolean).map(w => STREET_WORDS[w] || w);
+
+/* Bala's Table, linearly interpolated for part-years. */
+function balaPct(years) {
+  const y = Math.min(99, Math.max(1, years));
+  const lo = Math.floor(y), hi = Math.min(99, lo + 1);
+  return BALA_TABLE[lo] + (BALA_TABLE[hi] - BALA_TABLE[lo]) * (y - lo);
+}
+
+/* "56 years 06 months" → 56.5 */
+function parseLease(text, leaseStart) {
+  const m = /(\d+)\s*years?(?:\s*(\d+)\s*months?)?/i.exec(String(text || ''));
+  if (m) return +m[1] + (+m[2] || 0) / 12;
+  return LEASE_TOTAL_YEARS - (CURRENT_YEAR - Number(leaseStart));
+}
+
+/* "10 TO 12" → 11 */
+function storeyMid(range) {
+  const m = /(\d+)\s*TO\s*(\d+)/i.exec(range || '');
+  return m ? (+m[1] + +m[2]) / 2 : null;
+}
+
+function quantile(sorted, q) {
+  const pos = (sorted.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
+async function resaleQuery(filters, limit, fields) {
+  const params = new URLSearchParams({
+    resource_id: RESALE_DATASET, limit: String(limit), sort: 'month desc',
+    filters: JSON.stringify(filters),
+  });
+  if (fields) params.set('fields', fields);
+  const res = await fetch('https://data.gov.sg/api/action/datastore_search?' + params);
+  if (!res.ok) throw new Error(res.status === 429
+    ? 'data.gov.sg is rate-limiting requests. Wait a minute and try again.'
+    : `data.gov.sg returned ${res.status}`);
+  const data = await res.json();
+  if (!data.success) throw new Error('data.gov.sg could not run the search.');
+  return data.result.records;
+}
+
+/* The block number narrows HDB's records to a handful of streets island-wide;
+   the one sharing the most words with OneMap's road name is ours. */
+async function resolveStreet(block, road) {
+  const rows = await resaleQuery({ block }, 1000, 'street_name,town');
+  const want = new Set(streetTokens(road));
+  let best = null, bestScore = 0;
+  for (const r of rows) {
+    const got = streetTokens(r.street_name);
+    const score = got.filter(w => want.has(w)).length / Math.max(want.size, got.length);
+    if (score > bestScore) { best = r; bestScore = score; }
+  }
+  return bestScore >= 0.5 ? best : null;
+}
+
+function monthsAgo(n) {
+  const d = new Date();
+  d.setMonth(d.getMonth() - n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/* Adjust one sale to the subject flat and express it per sqm. */
+function adjustComparable(c, subj) {
+  const area = Number(c.floor_area_sqm);
+  const lease = parseLease(c.remaining_lease, c.lease_commence_date);
+  const storey = storeyMid(c.storey_range);
+  const leaseAdj = balaPct(subj.lease) / balaPct(lease);
+  const floorAdj = subj.storey && storey ? 1 + FLOOR_STEP * (subj.storey - storey) : 1;
+  const psm = Number(c.resale_price) / area;
+  return { ...c, area, lease, storey, leaseAdj, floorAdj, psm, adjPsm: psm * leaseAdj * floorAdj };
+}
+
+function estimateFrom(comps, subj) {
+  const adj = comps.map(c => adjustComparable(c, subj));
+  const area = subj.area || quantile(adj.map(c => c.area).sort((a, b) => a - b), 0.5);
+  const psms = adj.map(c => c.adjPsm).sort((a, b) => a - b);
+  const round = (n) => Math.round(n / 1000) * 1000;
+  return {
+    comps: adj, area, areaAssumed: !subj.area,
+    value: round(quantile(psms, 0.5) * area),
+    low:   round(quantile(psms, 0.25) * area),
+    high:  round(quantile(psms, 0.75) * area),
+  };
+}
+
+async function estimateValuation() {
+  const status = $('estStatus');
+  const postal = ($('valPostal').value.trim() || $('postalNew').value.trim());
+  status.className = 'geostatus';
+
+  if (!/^\d{6}$/.test(postal)) {
+    status.className = 'geostatus err';
+    status.textContent = 'Enter the flat\'s 6-digit postal code here or in section 5.';
+    return;
+  }
+
+  const flatType = FLAT_TYPE[$('roomType').value];
+  const topYear = Number($('topYear').value) || CURRENT_YEAR;
+  const subj = {
+    lease: Math.max(1, LEASE_TOTAL_YEARS - (CURRENT_YEAR - topYear)),
+    storey: Number($('valStorey').value) || null,
+    area: Number($('valArea').value) || null,
+  };
+
+  $('estimateBtn').disabled = true;
+  status.textContent = 'Looking up the address…';
+
+  try {
+    const addr = await geocode(postal);
+    if (!addr.block || addr.block === 'NIL') throw new Error(`Postal code ${postal} is not an HDB block.`);
+
+    status.textContent = 'Finding the street in HDB records…';
+    const street = await resolveStreet(addr.block, addr.road);
+    if (!street) throw new Error(`No HDB resale records found for Blk ${addr.block} ${addr.road}.`);
+
+    status.textContent = 'Fetching recent sales…';
+    const since = monthsAgo(COMPARABLE_MONTHS);
+    let scope = 'street';
+    let comps = (await resaleQuery({ street_name: street.street_name, flat_type: flatType }, 300))
+      .filter(c => c.month >= since);
+
+    if (comps.length < MIN_COMPARABLES) {
+      scope = 'town';
+      comps = (await resaleQuery({ town: street.town, flat_type: flatType }, 1000))
+        .filter(c => c.month >= since
+                  && Math.abs(Number(c.lease_commence_date) - topYear) <= TOWN_LEASE_BAND);
+    }
+    if (comps.length < MIN_COMPARABLES) {
+      throw new Error(`Too few ${flatType.toLowerCase()} sales in ${street.town} in the last ${COMPARABLE_MONTHS} months to estimate from.`);
+    }
+
+    valEstimate = {
+      ...estimateFrom(comps, subj), scope, flatType, subj,
+      block: addr.block, street: street.street_name, town: street.town, topYear,
+    };
+    compsPage = 0;
+    status.textContent = '';
+    renderEstimate();
+  } catch (err) {
+    valEstimate = null;
+    $('estResult').hidden = true;
+    status.className = 'geostatus err';
+    status.textContent = err.message || 'Lookup failed. Check your connection and try again.';
+  } finally {
+    $('estimateBtn').disabled = false;
+  }
+}
+
+function renderEstimate() {
+  const e = valEstimate;
+  const box = $('estResult');
+  if (!e) { box.hidden = true; return; }
+
+  const where = e.scope === 'street'
+    ? `${e.street}`
+    : `${e.town} (too few on ${e.street}; flats with lease starting ${e.topYear - TOWN_LEASE_BAND}–${e.topYear + TOWN_LEASE_BAND})`;
+  const title = (s) => s.toLowerCase().replace(/\b\w/g, ch => ch.toUpperCase());
+
+  box.innerHTML = `
+    <div class="distnum">${sgd(e.value)}</div>
+    <div class="est-range">Middle half of adjusted sales: ${sgd(e.low)} – ${sgd(e.high)}</div>
+    <div class="est-basis">
+      Median of <strong>${e.comps.length}</strong> ${title(e.flatType)} sales in the last ${COMPARABLE_MONTHS} months on ${where}.
+      Each is adjusted per m² to this flat's ${e.subj.lease}-year lease using Bala's Table${e.subj.storey ? `, to storey ${e.subj.storey} at ${(FLOOR_STEP * 300).toFixed(0)}% per 3 floors` : ''},
+      then applied to ${Math.round(e.area)} m²${e.areaAssumed ? ' (the median size of those sales — enter the floor area for a closer figure)' : ''}.
+      Transacted prices include any COV those buyers paid, so HDB's valuation may come in lower.
+    </div>
+    <div class="est-use">
+      <label class="field">
+        <span class="lbl">Valuation to use (S$)</span>
+        <div class="inline">
+          <input type="text" inputmode="numeric" class="money" id="estUseValue" value="${Math.round(e.value).toLocaleString('en-SG')}" />
+          <button type="button" id="estUseBtn" class="btn-secondary">Set as valuation</button>
+        </div>
+        <span class="hint">Adjust the figure if you like, then set it. It fills the HDB / bank valuation field above.</span>
+      </label>
+      <div id="estUseMsg" class="verdict yes" role="status"></div>
+    </div>
+    <div id="compsPage"></div>`;
+  box.hidden = false;
+  renderCompsPage();
+
+  const useEl = $('estUseValue');
+  useEl.addEventListener('input', () => formatMoneyField(useEl));
+  const apply = () => {
+    const v = moneyValue('estUseValue');
+    setMoney('valuation', v);
+    recalc();
+    $('estUseMsg').textContent = `Valuation set to ${sgd(v)}.`;
+    const field = $('valuation');
+    field.classList.remove('flash');
+    void field.offsetWidth;   // restart the animation on repeat clicks
+    field.classList.add('flash');
+  };
+  $('estUseBtn').addEventListener('click', apply);
+  useEl.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); apply(); } });
+}
+
+/* An (i) button revealing an explanation on hover, focus or tap. */
+const infoTip = (id, label, html) =>
+  `<span class="tip"><button type="button" class="tip-btn" aria-label="${label}" aria-describedby="${id}">i</button>` +
+  `<span role="tooltip" id="${id}" class="tip-body">${html}</span></span>`;
+
+/* One page of the comparables, most recent first. */
+function renderCompsPage() {
+  const e = valEstimate;
+  const pages = Math.ceil(e.comps.length / COMPS_PER_PAGE);
+  compsPage = Math.min(Math.max(0, compsPage), pages - 1);
+  const from = compsPage * COMPS_PER_PAGE;
+  const shown = e.comps.slice(from, from + COMPS_PER_PAGE);
+
+  const rows = shown.map(c => `<tr>
+      <td>Blk ${c.block}, ${c.storey_range.replace(' TO ', '–').replace(/\b0(\d)/g, '$1')}<small>${c.month}</small></td>
+      <td>${Math.round(c.area)} m²<small>${Math.floor(c.lease)} yr lease</small></td>
+      <td>${sgd(Number(c.resale_price))}</td>
+      <td>${sgd(c.adjPsm * e.area)}</td>
+    </tr>`).join('');
+
+  const pager = pages <= 1 ? '' : `
+    <div class="pager">
+      <button type="button" class="chip" id="compsPrev" ${compsPage === 0 ? 'disabled' : ''}>← Newer</button>
+      <span>${from + 1}–${from + shown.length} of ${e.comps.length}</span>
+      <button type="button" class="chip" id="compsNext" ${compsPage >= pages - 1 ? 'disabled' : ''}>Older →</button>
+    </div>`;
+
+  $('compsPage').innerHTML = `
+    <table class="comps">
+      <thead><tr><th>Sale</th><th>Size</th>
+        <th>Price ${infoTip('tipPrice', 'What is Price?',
+          `What that flat actually sold for, as registered with HDB. It includes any cash over valuation that buyer paid.`)}</th>
+        <th>Adjusted ${infoTip('tipAdjusted', 'How is Adjusted calculated?',
+          `What this sale suggests <strong>your</strong> flat is worth:
+           <ol>
+             <li><strong>Size</strong> — price ÷ that flat's m² × your ${Math.round(e.area)} m²${e.areaAssumed ? ' (median size, as none was entered)' : ''}.</li>
+             <li><strong>Lease</strong> — × Bala's Table % for your ${e.subj.lease} years ÷ the % for that flat's remaining lease. Less lease than yours adjusts up; more adjusts down.</li>
+             <li><strong>Floor</strong> — ${e.subj.storey
+                ? `± ${(FLOOR_STEP * 100).toFixed(1)}% per storey between your storey ${e.subj.storey} and the middle of that sale's storey range.`
+                : `not adjusted — enter your storey to include it.`}</li>
+           </ol>
+           The estimate is the middle of this column.`)}</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>${pager}`;
+
+  if (pages > 1) {
+    $('compsPrev').addEventListener('click', () => { compsPage--; renderCompsPage(); });
+    $('compsNext').addEventListener('click', () => { compsPage++; renderCompsPage(); });
+  }
+}
+
+/* ===============================================================
    WIRING
    =============================================================== */
 function applyPreset(key) {
@@ -841,6 +1189,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('grantPreset').addEventListener('change', (e) => applyPreset(e.target.value));
   $('measureBtn').addEventListener('click', measure);
+  $('estimateBtn').addEventListener('click', estimateValuation);
+
+  /* Mirror the section 5 new-flat postal code into section 7, until the
+     user types a different one there. */
+  let valPostalSynced = $('valPostal').value;
+  $('postalNew').addEventListener('input', () => {
+    if ($('valPostal').value === valPostalSynced) {
+      $('valPostal').value = valPostalSynced = $('postalNew').value;
+    }
+  });
+  $('valPostal').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); estimateValuation(); } });
   [$('postalNew'), $('postalOld')].forEach(el =>
     el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); measure(); } }));
 

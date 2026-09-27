@@ -238,6 +238,42 @@
       <span class="hint">For resale flats most buyers pay BSD in cash first and reimburse from CPF later. Leave unticked for the conservative cash figure.</span>
       <div id="bsdBreakdown" class="bsdtable"></div>
     </section>
+
+    <!-- ===== 7. VALUATION & COV ===== -->
+    <section class="card">
+      <h2><span class="num">7</span> Valuation &amp; COV</h2>
+      <label class="field">
+        <span class="lbl">HDB / bank valuation (S$)</span>
+        <input type="text" inputmode="numeric" class="money" id="valuation" value="0" />
+        <span class="hint">The valuation from HDB or the bank. The loan and CPF are based on the lower of price and valuation, so if the price is higher, the difference (cash over valuation) must be paid in cash. Leave at 0 to assume it values at the price.</span>
+      </label>
+      <div id="covBox" class="infobox"></div>
+
+      <div class="subsect">
+        <h3>No valuation yet? Estimate it from recent sales</h3>
+        <p class="cardnote">Looks up the last 12 months of HDB resale transactions for the same flat type on the same street, then adjusts each one to this flat's lease, floor and size. Uses the room type and TOP year from section 1.</p>
+
+        <label class="field">
+          <span class="lbl">Flat postal code</span>
+          <input type="text" id="valPostal" inputmode="numeric" maxlength="6" placeholder="Same as section 5" />
+          <span class="hint">Filled in from the new flat postal code in section 5. Change it here to estimate a different flat.</span>
+        </label>
+        <div class="grid2">
+          <label class="field">
+            <span class="lbl">Floor (storey)</span>
+            <input type="number" id="valStorey" min="1" max="60" step="1" placeholder="optional" />
+          </label>
+          <label class="field">
+            <span class="lbl">Floor area (sqm)</span>
+            <input type="number" id="valArea" min="30" max="300" step="1" placeholder="optional" />
+          </label>
+        </div>
+
+        <button type="button" id="estimateBtn" class="btn-secondary">Estimate from recent sales</button>
+        <div id="estStatus" class="geostatus" role="status"></div>
+        <div id="estResult" class="distbox" hidden></div>
+      </div>
+    </section>
   </form>
 
   <!-- ===== RESULTS ===== -->
@@ -308,6 +344,15 @@
       </div>
 
       <div class="refgroup">
+        <h3>Valuation</h3>
+        <ul>
+          <li><a href="https://www.hdb.gov.sg/buying-a-flat/resale-flats/process-for-buying-a-resale-flat/option-to-purchase/request-for-value" target="_blank" rel="noopener">HDB — Request for Value</a><span>How the official valuation is requested after the Option to Purchase.</span></li>
+          <li><a href="https://data.gov.sg/collections/189/view" target="_blank" rel="noopener">data.gov.sg — Resale Flat Prices</a><span>HDB&rsquo;s registered resale transactions, used for the estimate.</span></li>
+          <li><a href="https://isomer-user-content.by.gov.sg/50/ade6cd16-890b-4a1b-9d1d-d0e189daba03/balas-table.pdf" target="_blank" rel="noopener">Centre for Liveable Cities — Bala&rsquo;s Table</a><span>SLA&rsquo;s leasehold values as a % of freehold, used to adjust for lease.</span></li>
+        </ul>
+      </div>
+
+      <div class="refgroup">
         <h3>Map and distance</h3>
         <ul>
           <li><a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener">OneMap</a><span>Singapore Land Authority basemap and address data.</span></li>
@@ -326,16 +371,18 @@
       Every figure on this page is calculated in your own browser in JavaScript. There is no
       database, no account, no analytics and no server doing any of the work — the site is
       static files served by GitHub&nbsp;Pages. Close the tab and the numbers are gone; reload
-      and you start from the defaults again. The only request that ever leaves your browser is
-      the postal-code lookup you trigger yourself with <em>Measure distance</em>, which sends
-      just those two postal codes to Singapore&rsquo;s OneMap service to fetch coordinates and
-      map tiles. Your price, income, CPF balance and age never leave the device.
+      and you start from the defaults again. Only two lookups ever leave your browser, and only
+      when you press their buttons: <em>Measure distance</em> sends the two postal codes to
+      Singapore&rsquo;s OneMap service for coordinates and map tiles, and <em>Estimate from recent
+      sales</em> sends the flat&rsquo;s postal code to OneMap and its block, street and flat type to
+      data.gov.sg to fetch public resale records. Your price, income, CPF balance and age never
+      leave the device.
     </div>
   </div>
 
   <div class="disclaim">
-    <p>Estimates only. BSD tiers are the rates effective 20 Feb 2023. MSR is capped at 30% and TDSR at 55% of gross monthly income, assessed at the higher of 4% p.a. or the prevailing rate. The age-95 lease pro-ration applies to CPF usage on any loan, and to LTV on an HDB concessionary loan only. Grant amounts, LTV limits and lease rules change — confirm with HDB, CPF Board, MAS and IRAS before committing. Distance is straight-line, the basis HDB uses for the 4&nbsp;km proximity condition.</p>
-    <p>Not included: option fee and deposit, conveyancing and legal fees, HDB resale application fees, valuation, agent commission, resale levy and cash-over-valuation.</p>
+    <p>Estimates only. BSD tiers are the rates effective 20 Feb 2023. MSR is capped at 30% and TDSR at 55% of gross monthly income, assessed at the higher of 4% p.a. or the prevailing rate. The age-95 lease pro-ration applies to CPF usage on any loan, and to LTV on an HDB concessionary loan only. Grant amounts, LTV limits and lease rules change — confirm with HDB, CPF Board, MAS and IRAS before committing. Distance is straight-line, the basis HDB uses for the 4&nbsp;km proximity condition. Cash over valuation is payable only in cash; BSD is charged on the higher of price and valuation. The valuation estimate is built from past transacted prices, which include any COV those buyers paid, so HDB&rsquo;s actual valuation may come in lower.</p>
+    <p>Not included: option fee and deposit, conveyancing and legal fees, HDB resale application fees, valuation fees, agent commission and resale levy.</p>
     <p class="attrib">Geocoding and map data &copy; <a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener">OneMap</a>, Singapore Land Authority. &nbsp;·&nbsp; Last updated <time id="lastUpdated"></time>.</p>
   </div>
 </footer>

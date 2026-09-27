@@ -1,10 +1,12 @@
 # HDB Cash Outlay Calculator — Requirements Specification
 
-**Version:** 1.2
-**Date:** 2026-09-19
+**Version:** 1.3
+**Date:** 2026-09-27
 **Status:** Authoritative. v1.1 added the lease model (§3.2), MSR/TDSR (§3.3) and the
 CPF Valuation Limit pro-ration (§3.4). v1.2 resolves Open Question 6: the age-95
-pro-ration applies to CPF always and to LTV only on an HDB concessionary loan.
+pro-ration applies to CPF always and to LTV only on an HDB concessionary loan. v1.3 adds
+valuation and cash over valuation (§3.9a) and a valuation estimate from HDB resale
+transactions (§3.9b).
 **Notation:** EARS (Easy Approach to Requirements Syntax)
 
 ---
@@ -19,11 +21,12 @@ savings, housing grants, and Buyer's Stamp Duty.
 ### 1.2 In scope
 Flat price, room type and TOP year; the remaining-lease model and its effect on loan and CPF;
 loan tenure, LTV, MSR and TDSR; CPF OA; flat-type grant; Proximity Housing Grant with
-map-based distance measurement; Buyer's Stamp Duty; and the resulting cash figure.
+map-based distance measurement; valuation and cash over valuation; Buyer's Stamp Duty; and
+the resulting cash figure.
 
 ### 1.3 Out of scope
 Option fee and deposit, conveyancing and legal fees, HDB resale application fees, valuation
-fees, agent commission, cash-over-valuation, Additional Buyer's Stamp Duty, resale levy,
+fees, agent commission, Additional Buyer's Stamp Duty, resale levy,
 income-ceiling and first-timer eligibility assessment, amortisation schedules beyond the
 single stress-tested instalment, and persistence of user data between sessions.
 
@@ -51,7 +54,7 @@ single stress-tested instalment, and persistence of user data between sessions.
 | **CPF Pool** | CPF OA + Total Grants; the non-cash funds available at completion. |
 | **BSD** | Buyer's Stamp Duty, per IRAS residential rates effective 20 Feb 2023. |
 | **PHG** | Proximity Housing Grant, granted when the new flat is within 4 km of the current/parents' flat. |
-| **Minimum Cash** | The portion of Price that regulation requires to be paid in hard cash (5% for bank loans, 0% for HDB loans). |
+| **Minimum Cash** | The portion of Assessed Value that regulation requires to be paid in hard cash (5% for bank loans, 0% for HDB loans). |
 | **Cash Outlay** | The headline output: cash for downpayment + stamp duty paid in cash. |
 | **TOP** | Temporary Occupation Permit. It is an official document issued by the Building and Construction Authority (BCA) in Singapore that allows homeowners to move into a newly completed HDB flat or residential building. |
 | **Remaining Lease** | 99 − (current year − TOP year). The years of lease left at the point of purchase. |
@@ -60,6 +63,9 @@ single stress-tested instalment, and persistence of user data between sessions.
 | **MSR** | Mortgage Servicing Ratio. Monthly property-loan repayments ÷ gross monthly income, capped at 30%. Applies only to HDB flats and ECs bought from a developer. |
 | **TDSR** | Total Debt Servicing Ratio. All monthly debt repayments ÷ gross monthly income, capped at 55%. Applies to every property loan. |
 | **Stress Rate** | The interest rate at which MSR and TDSR are assessed: the higher of 4% p.a. or the prevailing rate. |
+| **Valuation** | The value placed on the flat by HDB or the bank. Where none is entered, it is taken as the Price. |
+| **COV** | Cash over valuation: max(0, Price − Valuation). Payable in cash only. |
+| **Assessed Value** | min(Price, Valuation). The base for LTV, the CPF Valuation Limit and the bank-loan Minimum Cash. |
 | **Binding Cap** | The lowest of the requested loan, the LTV cap, the MSR cap, the TDSR cap and the flat price — the one that actually determines the loan. |
 
 ---
@@ -80,13 +86,13 @@ single stress-tested instalment, and persistence of user data between sessions.
 
 - **REQ-LOAN-1** — The system shall offer two mutually exclusive loan-entry modes: *LTV ratio* and *manual loan amount*.
 - **REQ-LOAN-2** — The system shall default to LTV mode with an LTV of 75%.
-- **REQ-LOAN-3** — While LTV mode is selected, the system shall compute Loan = Price × LTV ÷ 100 and shall hide the manual loan input.
+- **REQ-LOAN-3** — While LTV mode is selected, the system shall compute Loan = Assessed Value × LTV ÷ 100 and shall hide the manual loan input.
 - **REQ-LOAN-4** — While manual mode is selected, the system shall use the entered loan amount verbatim and shall hide the LTV input. The field shall be pre-filled at 75% of the default price.
-- **REQ-LOAN-5** — If the resulting loan exceeds the price, then the system shall cap the loan at the price.
+- **REQ-LOAN-5** — If the resulting loan exceeds the Assessed Value, then the system shall cap the loan at the Assessed Value.
 - **REQ-LOAN-6** — If the entered LTV is outside 0–100, then the system shall clamp it to that range.
 - **REQ-LOAN-7** — The system shall compute Downpayment = Price − Loan and shall display it together with its percentage of Price to one decimal place.
 - **REQ-LOAN-8** — The system shall provide a loan-type selector offering *HDB concessionary loan* and *bank loan*.
-- **REQ-LOAN-9** — Where the loan type is a bank loan, the system shall set Minimum Cash = 5% of Price.
+- **REQ-LOAN-9** — Where the loan type is a bank loan, the system shall set Minimum Cash = 5% of Assessed Value.
 - **REQ-LOAN-10** — Where the loan type is an HDB concessionary loan, the system shall set Minimum Cash = 0.
 - **REQ-LOAN-11** — The system shall compute Years-to-95 = 95 − age of the youngest buyer, and Lease Ratio = min(1, Remaining Lease ÷ Years-to-95).
 - **REQ-LOAN-12** — Where the Remaining Lease covers the youngest buyer to age 95, the system shall apply a Lease Ratio of 1 and shall grant the full LTV.
@@ -129,9 +135,9 @@ single stress-tested instalment, and persistence of user data between sessions.
 
 - **REQ-CPF-1** — The system shall provide a numeric input for the combined CPF OA balance of all buyers.
 - **REQ-CPF-2** — The system shall draw from CPF only the amount required, never the full balance, and shall report any unused balance as remaining in the CPF OA.
-- **REQ-CPF-3** — The system shall apply CPF Pool to the downpayment up to a maximum of (Downpayment − Minimum Cash).
+- **REQ-CPF-3** — The system shall apply CPF Pool to the downpayment up to a maximum of (Downpayment − COV − Minimum Cash).
 - **REQ-CPF-4** — If Minimum Cash is greater than 0, then the system shall display a note stating the exact cash amount that CPF cannot cover and why.
-- **REQ-CPF-5** — The system shall cap the total CPF applied to the purchase at the pro-rated Valuation Limit = Price × Lease Ratio, **regardless of loan type** — the pro-ration is a CPF rule and is unaffected by who lends.
+- **REQ-CPF-5** — The system shall cap the total CPF applied to the purchase at the pro-rated Valuation Limit = Assessed Value × Lease Ratio, **regardless of loan type** — the pro-ration is a CPF rule and is unaffected by who lends.
 - **REQ-CPF-6** — If the CPF Pool exceeds the pro-rated Valuation Limit, then the system shall display the blocked amount and shall exclude it from the funds available for the downpayment.
 - **REQ-CPF-7** — If the Remaining Lease is 20 years or less, then the system shall set the usable CPF to 0.
 
@@ -171,7 +177,7 @@ single stress-tested instalment, and persistence of user data between sessions.
 
 ### 3.7 Buyer's Stamp Duty
 
-- **REQ-BSD-1** — The system shall compute BSD on the purchase price using the IRAS residential tiers effective 20 February 2023:
+- **REQ-BSD-1** — The system shall compute BSD on the higher of Price and Valuation using the IRAS residential tiers effective 20 February 2023:
 
   | Band | Rate |
   |---|---|
@@ -190,7 +196,7 @@ single stress-tested instalment, and persistence of user data between sessions.
 
 ### 3.8 Cash outlay calculation
 
-- **REQ-CALC-1** — The system shall compute the result in the following order: Lease Ratio → tenure cap → LTV cap → MSR cap → TDSR cap → binding loan → Downpayment → Total Grants → CPF Pool (bounded by the pro-rated Valuation Limit) → CPF applied to downpayment (bounded by Minimum Cash) → cash for downpayment → BSD → BSD paid in cash → Cash Outlay.
+- **REQ-CALC-1** — The system shall compute the result in the following order: Assessed Value and COV → Lease Ratio → tenure cap → LTV cap → MSR cap → TDSR cap → binding loan → Downpayment → Total Grants → CPF Pool (bounded by the pro-rated Valuation Limit) → CPF applied to downpayment (bounded by Minimum Cash) → cash for downpayment → BSD → BSD paid in cash → Cash Outlay.
 - **REQ-CALC-2** — The system shall compute Cash Outlay = cash for downpayment + BSD paid in cash.
 - **REQ-CALC-3** — The system shall never produce a negative cash-for-downpayment figure; surplus CPF and grants shall be reported as a remaining CPF balance instead.
 - **REQ-CALC-4** — The system shall display the Cash Outlay as the single most prominent figure on the page, with a subtitle decomposing it into its downpayment and stamp-duty parts.
@@ -200,6 +206,36 @@ single stress-tested instalment, and persistence of user data between sessions.
 - **REQ-CALC-7** — If cash for downpayment is 0 and a price has been entered, then the system shall state that CPF and grants cover the entire downpayment.
 - **REQ-CALC-8** — If CPF remains after the purchase, then the system shall display the remaining amount and note its value as an instalment buffer.
 - **REQ-CALC-9** — The system shall display a standing note listing the costs excluded from the calculation (§1.3).
+
+### 3.9a Valuation and cash over valuation
+
+- **REQ-COV-1** — The system shall provide a monetary input for the HDB or bank valuation in section 7, defaulting to 0.
+- **REQ-COV-2** — While the valuation is 0, the system shall take the Valuation as the Price, apply no COV, and say so.
+- **REQ-COV-3** — The system shall compute COV = max(0, Price − Valuation) and Assessed Value = min(Price, Valuation).
+- **REQ-COV-4** — The system shall base the LTV loan, the CPF Valuation Limit and the bank-loan Minimum Cash on the Assessed Value.
+- **REQ-COV-5** — The system shall never apply loan, CPF or grants to the COV; it shall be paid entirely in cash and included in the cash for downpayment.
+- **REQ-COV-6** — Where COV is greater than 0, the system shall show no separate box in section 7; the COV shall be itemised in the results breakdown and notes (REQ-COV-8).
+- **REQ-COV-7** — Where the valuation exceeds the price, the system shall state that there is no COV and that BSD is charged on the valuation, with the extra duty.
+- **REQ-COV-8** — Where COV is greater than 0, the headline subtitle, the breakdown, the notes and the PDF report shall show the COV amount.
+
+### 3.9b Valuation estimate
+
+HDB publishes no valuation formula. Its panel valuers use the direct comparison method:
+recent sales of similar flats, adjusted for the differences. The system approximates that.
+
+- **REQ-VAL-1** — The system shall provide, in section 7, a postal-code input that mirrors the section 5 new-flat postal code as it is typed until the user enters a different value there (and falls back to it when blank), optional storey and floor-area inputs, and an *Estimate from recent sales* control.
+- **REQ-VAL-2** — When the control is activated, the system shall geocode the postal code via OneMap to obtain the block number and road name.
+- **REQ-VAL-3** — The system shall identify the HDB street by querying the data.gov.sg Resale Flat Prices dataset for that block number and selecting the street name sharing the most words with the OneMap road name after expanding HDB's abbreviations; if no candidate shares at least half its words, the system shall report that no records were found.
+- **REQ-VAL-4** — The system shall take as comparables the sales of the same flat type on that street registered in the last 12 months.
+- **REQ-VAL-5** — If fewer than 3 such sales exist, then the system shall widen to the same flat type in the same town with a lease start within ±5 years of the TOP year, and shall say so.
+- **REQ-VAL-6** — If fewer than 3 comparables remain, then the system shall report that there are too few sales to estimate from.
+- **REQ-VAL-7** — The system shall convert each comparable to price per m² and adjust it for lease by the ratio of Bala's Table values (subject remaining lease ÷ comparable remaining lease, linearly interpolated), and, where a storey is entered, by 0.7% per storey of difference from the comparable's storey-range midpoint.
+- **REQ-VAL-8** — The system shall estimate the value as the median adjusted price per m² × the floor area, using the median comparable floor area when none is entered, rounded to the nearest $1,000, and shall show the interquartile range.
+- **REQ-VAL-9** — The system shall list every comparable, most recent first, 10 per page with *Newer* / *Older* controls and a position indicator, showing block, storey range, month, size, lease, transacted price and adjusted value.
+- **REQ-VAL-13** — The system shall place an (i) control beside the *Price* and *Adjusted* column headings that reveals, on hover, keyboard focus or tap, what the price is and how the adjusted value is derived, using this flat's area, lease and storey.
+- **REQ-VAL-10** — The system shall state that transacted prices include any COV paid, so HDB's valuation may be lower.
+- **REQ-VAL-11** — The system shall not apply the estimate automatically; it shall offer an editable money field pre-filled with the estimate and a *Set as valuation* control that writes that figure into the HDB / bank valuation input, recalculates, confirms the amount and highlights the updated field.
+- **REQ-VAL-12** — If either service fails or rate-limits the request, then the system shall show the reason and leave the rest of the calculator working.
 
 ### 3.9 PDF export
 
@@ -251,7 +287,7 @@ single stress-tested instalment, and persistence of user data between sessions.
 
 - **REQ-NFR-1** — The system shall run as a static client-side web application requiring no backend server of its own.
 - **REQ-NFR-2** — The system shall complete a recalculation within 50 ms of an input change on commodity hardware.
-- **REQ-NFR-3** — The system shall transmit no user data to any third party other than the two postal codes sent to the OneMap geocoding API, and only when the user triggers the distance measurement.
+- **REQ-NFR-3** — The system shall transmit no user data to any third party other than postal codes sent to the OneMap geocoding API, and the block, street, town and flat type sent to the data.gov.sg resale dataset, each only when the user triggers the distance measurement or the valuation estimate.
 - **REQ-NFR-7** — The system shall perform every calculation in the browser, with no server-side processing, no database and no account.
 - **REQ-NFR-8** — The system shall state plainly on the page, and in the exported PDF, that no data is saved and that the figures never leave the device apart from the postal-code lookup.
 - **REQ-NFR-4** — The system shall persist no user data between sessions.
@@ -281,6 +317,10 @@ Values requiring review whenever policy changes.
 | Reduced LTV | 55% | MAS Notice 632 | `app.js` → `REDUCED_LTV` |
 | Default LTV | 75% | HDB / MAS | `index.html` → `#ltv` |
 | Bank-loan cash floor | 5% of price | MAS | `app.js` → `BANK_CASH_FLOOR` |
+| Bala's Table | 3.8–96.0% for 1–99 yr | SLA Leasehold Table, via CLC commentary | `app.js` → `BALA_TABLE` |
+| Resale dataset | `d_8b84c4ee58e3cfc0ece0d773c8ca6abc` | data.gov.sg / HDB | `app.js` → `RESALE_DATASET` |
+| Comparable window | 12 months, min 3 sales, town fallback ±5 yr lease | Product choice | `app.js` → `COMPARABLE_MONTHS`, `MIN_COMPARABLES`, `TOWN_LEASE_BAND` |
+| Floor premium | 0.7% per storey (≈2% per 3 floors) | Industry rule of thumb, not HDB | `app.js` → `FLOOR_STEP` |
 | Proximity threshold | 4 km | HDB PHG | `app.js` → `measure` |
 | Preset "own figures" | 25k / 10k / 10k | Product owner | `app.js` → `PRESETS.custom` |
 | Preset "HDB 2026" | 80k / 50k / 20k | HDB published amounts | `app.js` → `PRESETS.official` |
@@ -297,6 +337,8 @@ Values requiring review whenever policy changes.
 | CPF | REQ-CPF-1..7 | `app.js` → `compute`, `renderCpfCapBox` |
 | Grants | REQ-GRANT-1..10 | `index.html` §4, `app.js` → `PRESETS`, `applyPreset`, `compute` |
 | Proximity | REQ-PROX-1..18 | `index.html` §5, `app.js` → `geocode`, `haversineKm`, `measure`, `initMap` |
+| Valuation & COV | REQ-COV-1..8 | `index.html` §7, `app.js` → `compute`, `renderCovBox`, `renderBreakdown` |
+| Valuation estimate | REQ-VAL-1..12 | `index.html` §7, `app.js` → `resolveStreet`, `resaleQuery`, `adjustComparable`, `estimateFrom`, `estimateValuation`, `renderEstimate` |
 | Stamp duty | REQ-BSD-1..6 | `app.js` → `BSD_TIERS`, `buyerStampDuty`, `renderBsdTable` |
 | Cash outlay | REQ-CALC-1..10 | `app.js` → `compute`, `renderBreakdown`, `renderNotes` |
 | Visual design | REQ-VIS-1..8 | `styles.css` tokens; `app.js` → `renderCapitalStack`, `renderLeaseBox` |
@@ -338,9 +380,16 @@ buyer 35, gross income $9,000/month, no other debt, HDB loan, 75% LTV, 25-year t
 | V-21 | Export PDF | Report renders with all seven sections; header, form and map hidden |
 | V-24 | Load at 320, 375, 393 and 430 px | `document.scrollWidth` equals the viewport at every width; no element outside the viewport bar map tiles clipped by the map container |
 | V-26 | Breakdown table at 320/393/430 px, and at 393 px with text inflated 20% and 40% | Table width equals its container at every case; neither the page nor the table scrolls horizontally; no cell overflows its column |
+| V-27 | B with valuation $620,000 | COV $30,000; loan $465,000; CPF $105,000; cash for downpayment $80,000; cash outlay $94,100 |
+| V-28 | V-27, bank loan | Minimum Cash $31,000 (5% of valuation); cash outlay unchanged at $94,100 |
+| V-29 | B with valuation $700,000 | No COV; loan $487,500; BSD $15,600 on the valuation; cash outlay $73,100 |
+| V-30 | B with valuation 0 | Identical to V-4 |
+| V-31 | Estimate for 560474, 4-room, TOP 1984 | Resolves to ANG MO KIO AVE 10; street scope; estimate within the listed sales' range |
+| V-32 | Estimate for 140091, 650213, 310061 | Abbreviations resolve: C'WEALTH DR, BT BATOK ST 21, LOR 5 TOA PAYOH |
+| V-33 | Estimate, then *Use as the valuation* | Valuation input takes the estimate and COV recalculates |
 | V-25 | Defaults, instalment at 2.6% vs 4% | S$1,289/month actually paid against S$1,500 assessed; total interest S$102,591 over 25 years |
 
-All sixteen were executed against the implementation on 2026-09-19 and passed.
+V-1..V-26 were executed against the implementation on 2026-09-19 and passed; V-27..V-33 on 2026-09-27.
 
 ---
 
