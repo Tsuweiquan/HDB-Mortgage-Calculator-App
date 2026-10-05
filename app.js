@@ -100,6 +100,9 @@ const COMPARABLE_MONTHS   = 12;    // look-back window for comparable sales
 const MIN_COMPARABLES     = 5;     // below this, widen the search a tier
 const COMPARABLE_RADIUS_KM = 2.0;  // tier 2: streets within this distance
 const MAX_STREETS_GEOCODED = 18;   // tier 2 budget — OneMap rate-limits readily
+const AREA_TOLERANCE      = 0.25;  // entered floor area may sit this far outside
+                                   // the comparables' size range before it is
+                                   // treated as the wrong flat type
 const TOWN_LEASE_BAND     = 5;     // town fallback: lease start within ± this many years
 const FLOOR_STEP          = 0.007; // ≈2% per 3-storey band — industry rule of thumb, not HDB's
 const SQFT_PER_SQM        = 10.7639;
@@ -1006,6 +1009,35 @@ function adjustComparable(c, subj) {
   return { ...c, area, lease, storey, leaseAdj, floorAdj, psm, adjPsm: psm * leaseAdj * floorAdj };
 }
 
+/* A floor area far outside the comparables' sizes means the area and the flat
+   type describe different flats — applying one's rate per m² to the other's
+   size is the easiest way to get a confidently wrong number out of this.
+   Returns null when the area is consistent, or a message naming both. */
+function areaMismatch(subjArea, comps) {
+  if (!subjArea || !comps.length) return null;
+  const areas = comps.map(c => Number(c.floor_area_sqm)).filter(a => a > 0);
+  if (!areas.length) return null;
+  const lo = Math.min(...areas) * (1 - AREA_TOLERANCE);
+  const hi = Math.max(...areas) * (1 + AREA_TOLERANCE);
+  if (subjArea >= lo && subjArea <= hi) return null;
+  return { lo: Math.min(...areas), hi: Math.max(...areas) };
+}
+
+/* On the error path only: which flat type on this street has that size? */
+async function typeMatchingArea(streetName, sqm) {
+  try {
+    const rows = await resaleQuery({ street_name: streetName }, 2000, 'flat_type,flat_model,floor_area_sqm');
+    const hits = new Map();
+    for (const r of rows) {
+      const a = Number(r.floor_area_sqm);
+      if (!a || Math.abs(a - sqm) / sqm > 0.04) continue;      // within 4% of the entered size
+      const key = `${r.flat_type} · ${r.flat_model}`;
+      hits.set(key, (hits.get(key) || 0) + 1);
+    }
+    return [...hits.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2).map(e => e[0]);
+  } catch { return []; }
+}
+
 function estimateFrom(comps, subj) {
   const adj = comps.map(c => adjustComparable(c, subj));
   const area = subj.area || quantile(adj.map(c => c.area).sort((a, b) => a - b), 0.5);
@@ -1104,6 +1136,18 @@ async function estimateValuation() {
 
     if (comps.length < MIN_COMPARABLES) {
       throw new Error(`Only ${comps.length} ${spec.label.toLowerCase()} sale${comps.length === 1 ? '' : 's'} in ${street.town} in the last ${COMPARABLE_MONTHS} months — too few to estimate from. Try a longer-established flat type or enter a valuation manually.`);
+    }
+
+    const bad = areaMismatch(subj.area, comps);
+    if (bad) {
+      const suggest = await typeMatchingArea(street.street_name, subj.area);
+      throw new Error(
+        `The ${sqft(subj.area)} floor area does not match a ${spec.label.toLowerCase()}. `
+        + `The ${comps.length} ${spec.label.toLowerCase()} sales found are ${sqft(bad.lo)}`
+        + (bad.hi !== bad.lo ? ` to ${sqft(bad.hi)}` : '') + `. `
+        + (suggest.length
+            ? `On ${street.street_name} that size is ${suggest.join(' or ')} — check the flat type in section 1.`
+            : `Check the flat type in section 1, or the floor area.`));
     }
 
     valEstimate = {

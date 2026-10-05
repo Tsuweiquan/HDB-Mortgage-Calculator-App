@@ -232,6 +232,8 @@ recent sales of similar flats, adjusted for the differences. The system approxim
 - **REQ-VAL-16** — Where the selected type is a maisonette, the system shall restrict comparables to the maisonette models and exclude single-level flats of the same flat type; where it is not, the system shall exclude every maisonette model.
 - **REQ-VAL-17** — Every 5-room and Executive variant, maisonette or not, shall fall in the "5-room & above" grant band.
 - **REQ-VAL-18** — The system shall name the models actually compared, so the basis of the estimate is visible rather than implied.
+- **REQ-VAL-20** — If an entered floor area lies more than 25% outside the range of the comparables' floor areas, then the system shall refuse to produce an estimate and shall report both the entered area and the comparables' range, because applying one flat type's rate per unit area to another's size yields a confidently wrong figure.
+- **REQ-VAL-21** — When refusing under REQ-VAL-20, the system shall name the flat type and model on that street whose size matches the entered area, where one exists, so the user can correct the flat type rather than guess.
 - **REQ-VAL-5** — If fewer than 5 such sales exist, then the system shall widen the search a tier at a time, keeping the flat type and model group fixed throughout, and shall state which tier produced the figure:
   1. streets whose position lies within 2 km of the subject block;
   2. the same town, lease start within ±5 years of the TOP year;
@@ -330,6 +332,7 @@ Values requiring review whenever policy changes.
 | Resale dataset | `d_8b84c4ee58e3cfc0ece0d773c8ca6abc` | data.gov.sg / HDB | `app.js` → `RESALE_DATASET` |
 | Comparable window | 12 months, min 5 sales | Product choice | `app.js` → `COMPARABLE_MONTHS`, `MIN_COMPARABLES` |
 | Widening tiers | 2 km radius (max 18 streets geocoded), then town ±5 yr lease, then town any age | Product choice | `app.js` → `COMPARABLE_RADIUS_KM`, `MAX_STREETS_GEOCODED`, `TOWN_LEASE_BAND` |
+| Area tolerance | entered area within ±25% of the comparables' size range | Product choice | `app.js` → `AREA_TOLERANCE` |
 | Maisonette models | Maisonette, Premium Maisonette, Model A-Maisonette, Improved-Maisonette | data.gov.sg `flat_model` values | `app.js` → `MAISONETTE_MODELS` |
 | Floor premium | 0.7% per storey (≈2% per 3 floors) | Industry rule of thumb, not HDB | `app.js` → `FLOOR_STEP` |
 | Proximity threshold | 4 km | HDB PHG | `app.js` → `measure` |
@@ -349,7 +352,7 @@ Values requiring review whenever policy changes.
 | Grants | REQ-GRANT-1..10 | `index.html` §4, `app.js` → `PRESETS`, `applyPreset`, `compute` |
 | Proximity | REQ-PROX-1..18 | `index.html` §5, `app.js` → `geocode`, `haversineKm`, `measure`, `initMap` |
 | Valuation & COV | REQ-COV-1..8 | `index.html` §7, `app.js` → `compute`, `renderCovBox`, `renderBreakdown` |
-| Valuation estimate | REQ-VAL-1..19 | `index.html` §7, `app.js` → `FLAT_SPEC`, `isMaisonette`, `resolveStreet`, `resaleQuery`, `geocodeStreet`, `adjustComparable`, `estimateFrom`, `estimateValuation`, `renderEstimate` |
+| Valuation estimate | REQ-VAL-1..21 | `index.html` §7, `app.js` → `FLAT_SPEC`, `isMaisonette`, `resolveStreet`, `resaleQuery`, `geocodeStreet`, `adjustComparable`, `estimateFrom`, `estimateValuation`, `renderEstimate` |
 | Stamp duty | REQ-BSD-1..6 | `app.js` → `BSD_TIERS`, `buyerStampDuty`, `renderBsdTable` |
 | Cash outlay | REQ-CALC-1..10 | `app.js` → `compute`, `renderBreakdown`, `renderNotes` |
 | Visual design | REQ-VIS-1..8 | `styles.css` tokens; `app.js` → `renderCapitalStack`, `renderLeaseBox` |
@@ -395,6 +398,8 @@ buyer 35, gross income $9,000/month, no other debt, HDB loan, 75% LTV, 25-year t
 | V-28 | Estimate an Executive Apartment on the same block | No maisonette appears; the figure differs from V-27, the two dwelling types no longer being blended |
 | V-29 | Estimate a 5-room | Model A / Improved and similar appear; `Model A-Maisonette` and `Improved-Maisonette` are excluded |
 | V-30 | Grant band for 5-room, 5-room Maisonette, Executive Apartment, Executive Maisonette | All four fall in the "5-room & above" band |
+| V-31 | 4-room selected with a 1,572 sq ft area, postal 760614 | Refused, naming the 893–1,152 sq ft comparable range and suggesting EXECUTIVE · Apartment or Maisonette |
+| V-32 | Executive Maisonette with the same 1,572 sq ft area | Accepted — the area matches the comparables, so the guard does not fire |
 | V-27 | B with valuation $620,000 | COV $30,000; loan $465,000; CPF $105,000; cash for downpayment $80,000; cash outlay $94,100 |
 | V-28 | V-27, bank loan | Minimum Cash $31,000 (5% of valuation); cash outlay unchanged at $94,100 |
 | V-29 | B with valuation $700,000 | No COV; loan $487,500; BSD $15,600 on the valuation; cash outlay $73,100 |
