@@ -16,7 +16,7 @@ No backend, no build step, no dependencies to install — three static files.
 | **Grants** | Flat-type grant by room type, plus a Proximity Housing Grant driven by a real distance measurement |
 | **Proximity** | Postal codes geocoded through OneMap, great-circle distance, 4 km threshold, plotted on a map |
 | **Valuation & COV** | Loan, LTV and CPF on the lower of price and valuation; cash over valuation paid in cash; BSD on the higher |
-| **Valuation estimate** | Recent HDB resale sales on the same street (data.gov.sg), adjusted for lease by Bala's Table, floor and size |
+| **Valuation estimate** | Recent HDB resale sales of the same flat type *and model group* (data.gov.sg), adjusted for lease by Bala's Table, floor and size; widening street → 2 km radius → town as needed |
 | **CPF** | Drawn only as needed, capped by the pro-rated Valuation Limit, with the 5% hard-cash floor on bank loans |
 
 The loan granted is the **lowest** of the requested amount, the LTV cap, the MSR cap, the

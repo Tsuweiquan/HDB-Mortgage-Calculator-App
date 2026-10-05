@@ -97,9 +97,15 @@ const BALA_TABLE = [0,
 /* Valuation estimate from HDB resale transactions (data.gov.sg). */
 const RESALE_DATASET      = 'd_8b84c4ee58e3cfc0ece0d773c8ca6abc';
 const COMPARABLE_MONTHS   = 12;    // look-back window for comparable sales
-const MIN_COMPARABLES     = 3;     // below this on the street, widen to the town
+const MIN_COMPARABLES     = 5;     // below this, widen the search a tier
+const COMPARABLE_RADIUS_KM = 2.0;  // tier 2: streets within this distance
+const MAX_STREETS_GEOCODED = 18;   // tier 2 budget — OneMap rate-limits readily
 const TOWN_LEASE_BAND     = 5;     // town fallback: lease start within ± this many years
 const FLOOR_STEP          = 0.007; // ≈2% per 3-storey band — industry rule of thumb, not HDB's
+const SQFT_PER_SQM        = 10.7639;
+
+/* HDB records floor area in m²; the page shows square feet. */
+const sqft = (sqm) => Math.round(sqm * SQFT_PER_SQM).toLocaleString('en-SG') + ' sq ft';
 
 const PRESETS = {
   custom: {
@@ -275,7 +281,7 @@ function compute(i) {
   const dpWithinValuation = valuation - loan;
 
   /* ---- grants ---- */
-  const bigFlat = i.roomType === '5' || i.roomType === 'exec';
+  const bigFlat = flatSpec(i.roomType).type === '5 ROOM' || flatSpec(i.roomType).type === 'EXECUTIVE';
   const flatGrant = !i.grantOn ? 0 : (bigFlat ? i.grant5 : i.grant4);
   const flatGrantLabel = bigFlat ? '5-room & above grant' : '4-room & below grant';
   const proxGrant = proximity.eligible ? i.grantProx : 0;
@@ -652,14 +658,17 @@ function buildPrintReport(r) {
   const rows = (pairs) => pairs.filter(Boolean)
     .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
 
-  const roomLabel = { '2': '2-room Flexi', '3': '3-room', '4': '4-room',
-                      '5': '5-room', 'exec': 'Executive / Maisonette' }[r.roomType] || r.roomType;
+  const roomLabel = flatSpec(r.roomType).label;
 
   const inputs = rows([
     ['Room type', roomLabel],
     ['Purchase price', sgd(r.price)],
     ['Valuation', r.valuationStated ? sgd(r.valuationInput) : 'not stated — taken as the price'],
-    valEstimate && ['Valuation estimate', `${sgd(valEstimate.value)} (range ${sgd(valEstimate.low)} – ${sgd(valEstimate.high)}), median of ${valEstimate.comps.length} recent ${valEstimate.flatType.toLowerCase()} sales on ${valEstimate.scope === 'street' ? valEstimate.street : valEstimate.town}`],
+    valEstimate && ['Valuation estimate', `${sgd(valEstimate.value)} (range ${sgd(valEstimate.low)} – ${sgd(valEstimate.high)}), median of ${valEstimate.comps.length} recent ${valEstimate.flatType} sales `
+      + (valEstimate.scope === 'street' ? `on ${valEstimate.street}`
+         : valEstimate.scope === 'radius' ? `within ${valEstimate.radiusKm} km of Blk ${valEstimate.block}`
+         : `in ${valEstimate.town}`)
+      + `, models: ${valEstimate.models.join(', ')}`],
     r.cov > 0 && ['Cash over valuation', sgd(r.cov)],
     ['TOP year', `${r.topYear} — ${r.lease.remaining} years of lease remaining`],
     ['Age of youngest buyer', r.age],
@@ -875,7 +884,25 @@ let valEstimate = null;
 let compsPage = 0;
 const COMPS_PER_PAGE = 10;
 
-const FLAT_TYPE = { '2': '2 ROOM', '3': '3 ROOM', '4': '4 ROOM', '5': '5 ROOM', 'exec': 'EXECUTIVE' };
+/* HDB's flat_type does NOT distinguish a maisonette: "EXECUTIVE" covers both
+   double-storey Maisonettes and single-level Apartments, and 5-room
+   maisonettes sit under "5 ROOM". The distinction lives in flat_model, so a
+   comparable set filtered on flat_type alone mixes two dwelling types that
+   transact at different prices. Each room type therefore carries a model
+   group as well. */
+const MAISONETTE_MODELS = ['Maisonette', 'Premium Maisonette', 'Model A-Maisonette', 'Improved-Maisonette'];
+const isMaisonette = (model) => /maisonette/i.test(String(model || ''));
+
+const FLAT_SPEC = {
+  '2':        { type: '2 ROOM',    mais: null,  label: '2-room Flexi' },
+  '3':        { type: '3 ROOM',    mais: null,  label: '3-room' },
+  '4':        { type: '4 ROOM',    mais: null,  label: '4-room' },
+  '5':        { type: '5 ROOM',    mais: false, label: '5-room' },
+  '5m':       { type: '5 ROOM',    mais: true,  label: '5-room Maisonette' },
+  'execapt':  { type: 'EXECUTIVE', mais: false, label: 'Executive Apartment' },
+  'execmais': { type: 'EXECUTIVE', mais: true,  label: 'Executive Maisonette' },
+};
+const flatSpec = (roomType) => FLAT_SPEC[roomType] || FLAT_SPEC['4'];
 
 /* HDB abbreviates street names ("ANG MO KIO AVE 10"); OneMap spells them out. */
 const STREET_WORDS = {
@@ -910,6 +937,27 @@ function storeyMid(range) {
 function quantile(sorted, q) {
   const pos = (sorted.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+
+/* Streets geocoded for the radius tier, cached for the session: OneMap
+   rate-limits readily, so each street is fetched at most once. */
+const streetCoords = new Map();
+
+async function geocodeStreet(block, street) {
+  const key = block + '|' + street;
+  if (streetCoords.has(key)) return streetCoords.get(key);
+  let pos = null;
+  try {
+    const url = 'https://www.onemap.gov.sg/api/common/elastic/search'
+      + `?searchVal=${encodeURIComponent(block + ' ' + street)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const hit = ((await res.json()).results || []).find(x => x.LATITUDE && x.LONGITUDE);
+      if (hit) pos = { lat: +hit.LATITUDE, lng: +hit.LONGITUDE };
+    }
+  } catch { /* leave null — the caller degrades to the town tier */ }
+  streetCoords.set(key, pos);
+  return pos;
 }
 
 async function resaleQuery(filters, limit, fields) {
@@ -982,12 +1030,12 @@ async function estimateValuation() {
     return;
   }
 
-  const flatType = FLAT_TYPE[$('roomType').value];
+  const spec = flatSpec($('roomType').value);
   const topYear = Number($('topYear').value) || CURRENT_YEAR;
   const subj = {
     lease: Math.max(1, LEASE_TOTAL_YEARS - (CURRENT_YEAR - topYear)),
     storey: Number($('valStorey').value) || null,
-    area: Number($('valArea').value) || null,
+    area: (Number($('valArea').value) || 0) / SQFT_PER_SQM || null,   // entered in sq ft, held in m²
   };
 
   $('estimateBtn').disabled = true;
@@ -1003,23 +1051,65 @@ async function estimateValuation() {
 
     status.textContent = 'Fetching recent sales…';
     const since = monthsAgo(COMPARABLE_MONTHS);
-    let scope = 'street';
-    let comps = (await resaleQuery({ street_name: street.street_name, flat_type: flatType }, 300))
-      .filter(c => c.month >= since);
+
+    /* Model group matters as much as flat type. Maisonettes are rare, so for
+       them the model list is pushed server-side to keep the rows that come
+       back dense; the inverse case excludes maisonettes client-side, which
+       also catches any model string not in MAISONETTE_MODELS. */
+    const typeFilter = { flat_type: spec.type };
+    const modelFilter = spec.mais === true ? { flat_model: MAISONETTE_MODELS } : {};
+    const keep = (c) => c.month >= since
+      && (spec.mais === null || isMaisonette(c.flat_model) === spec.mais);
+
+    /* Tier 1 — the same street. */
+    let scope = 'street', radiusKm = null, widened = null;
+    let comps = (await resaleQuery({ street_name: street.street_name, ...typeFilter, ...modelFilter }, 500)).filter(keep);
+
+    /* Everything beyond tier 1 comes from the town, fetched once. */
+    let townRows = null;
+    const town = async () => townRows
+      ?? (townRows = (await resaleQuery({ town: street.town, ...typeFilter, ...modelFilter }, 2000)).filter(keep));
+
+    /* Tier 2 — streets whose position is within the radius. Needs a geocode
+       per street, so it is budgeted and degrades to tier 3 if OneMap balks. */
+    if (comps.length < MIN_COMPARABLES) {
+      status.textContent = `Widening to flats within ${COMPARABLE_RADIUS_KM} km…`;
+      const rows = await town();
+      const streets = [...new Map(rows.map(r => [r.street_name, r])).values()].slice(0, MAX_STREETS_GEOCODED);
+      const near = new Set();
+      for (const r of streets) {
+        const pos = await geocodeStreet(r.block, r.street_name);
+        if (pos && haversineKm(addr, pos) <= COMPARABLE_RADIUS_KM) near.add(r.street_name);
+      }
+      if (near.size) {
+        const within = rows.filter(r => near.has(r.street_name));
+        if (within.length >= MIN_COMPARABLES) {
+          comps = within; scope = 'radius'; radiusKm = COMPARABLE_RADIUS_KM;
+        }
+      }
+    }
+
+    /* Tier 3 — the whole town, flats of a similar age. */
+    if (comps.length < MIN_COMPARABLES) {
+      const rows = await town();
+      const banded = rows.filter(c => Math.abs(Number(c.lease_commence_date) - topYear) <= TOWN_LEASE_BAND);
+      if (banded.length >= MIN_COMPARABLES) { comps = banded; scope = 'town'; widened = 'lease'; }
+    }
+
+    /* Tier 4 — the whole town, any age. Bala's Table carries the lease gap. */
+    if (comps.length < MIN_COMPARABLES) {
+      const rows = await town();
+      if (rows.length >= MIN_COMPARABLES) { comps = rows; scope = 'town'; widened = 'any'; }
+    }
 
     if (comps.length < MIN_COMPARABLES) {
-      scope = 'town';
-      comps = (await resaleQuery({ town: street.town, flat_type: flatType }, 1000))
-        .filter(c => c.month >= since
-                  && Math.abs(Number(c.lease_commence_date) - topYear) <= TOWN_LEASE_BAND);
-    }
-    if (comps.length < MIN_COMPARABLES) {
-      throw new Error(`Too few ${flatType.toLowerCase()} sales in ${street.town} in the last ${COMPARABLE_MONTHS} months to estimate from.`);
+      throw new Error(`Only ${comps.length} ${spec.label.toLowerCase()} sale${comps.length === 1 ? '' : 's'} in ${street.town} in the last ${COMPARABLE_MONTHS} months — too few to estimate from. Try a longer-established flat type or enter a valuation manually.`);
     }
 
     valEstimate = {
-      ...estimateFrom(comps, subj), scope, flatType, subj,
+      ...estimateFrom(comps, subj), scope, radiusKm, widened, spec, flatType: spec.label, subj,
       block: addr.block, street: street.street_name, town: street.town, topYear,
+      models: [...new Set(comps.map(c => c.flat_model))].sort(),
     };
     compsPage = 0;
     status.textContent = '';
@@ -1039,18 +1129,20 @@ function renderEstimate() {
   const box = $('estResult');
   if (!e) { box.hidden = true; return; }
 
-  const where = e.scope === 'street'
-    ? `${e.street}`
-    : `${e.town} (too few on ${e.street}; flats with lease starting ${e.topYear - TOWN_LEASE_BAND}–${e.topYear + TOWN_LEASE_BAND})`;
-  const title = (s) => s.toLowerCase().replace(/\b\w/g, ch => ch.toUpperCase());
+  const where =
+    e.scope === 'street' ? `${e.street}`
+    : e.scope === 'radius' ? `streets within ${e.radiusKm} km of Blk ${e.block} (too few on ${e.street} alone)`
+    : e.widened === 'lease' ? `${e.town}, flats with lease starting ${e.topYear - TOWN_LEASE_BAND}–${e.topYear + TOWN_LEASE_BAND} (too few nearby)`
+    : `${e.town}, any age (too few nearby, and too few of a similar age)`;
 
   box.innerHTML = `
     <div class="distnum">${sgd(e.value)}</div>
     <div class="est-range">Middle half of adjusted sales: ${sgd(e.low)} – ${sgd(e.high)}</div>
     <div class="est-basis">
-      Median of <strong>${e.comps.length}</strong> ${title(e.flatType)} sales in the last ${COMPARABLE_MONTHS} months on ${where}.
-      Each is adjusted per m² to this flat's ${e.subj.lease}-year lease using Bala's Table${e.subj.storey ? `, to storey ${e.subj.storey} at ${(FLOOR_STEP * 300).toFixed(0)}% per 3 floors` : ''},
-      then applied to ${Math.round(e.area)} m²${e.areaAssumed ? ' (the median size of those sales — enter the floor area for a closer figure)' : ''}.
+      Median of <strong>${e.comps.length}</strong> ${e.flatType} sales in the last ${COMPARABLE_MONTHS} months on ${where}.
+      Compared against ${e.models.length === 1 ? 'the' : ''} <strong>${e.models.join(', ')}</strong> model${e.models.length === 1 ? '' : 's'} only${e.spec.mais === true ? ' — single-level flats of the same flat type are excluded, since they sell for less per unit area' : e.spec.mais === false ? ' — maisonettes are excluded, since they sell for more per unit area' : ''}.
+      Each is adjusted per unit of floor area to this flat's ${e.subj.lease}-year lease using Bala's Table${e.subj.storey ? `, to storey ${e.subj.storey} at ${(FLOOR_STEP * 300).toFixed(0)}% per 3 floors` : ''},
+      then applied to ${sqft(e.area)}${e.areaAssumed ? ' (the median size of those sales — enter the floor area for a closer figure)' : ''}.
       Transacted prices include any COV those buyers paid, so HDB's valuation may come in lower.
     </div>
     <div class="est-use">
@@ -1099,7 +1191,7 @@ function renderCompsPage() {
 
   const rows = shown.map(c => `<tr>
       <td>Blk ${c.block}, ${c.storey_range.replace(' TO ', '–').replace(/\b0(\d)/g, '$1')}<small>${c.month}</small></td>
-      <td>${Math.round(c.area)} m²<small>${Math.floor(c.lease)} yr lease</small></td>
+      <td>${sqft(c.area)}<small>${Math.floor(c.lease)} yr lease</small></td>
       <td>${sgd(Number(c.resale_price))}</td>
       <td>${sgd(c.adjPsm * e.area)}</td>
     </tr>`).join('');
@@ -1119,7 +1211,7 @@ function renderCompsPage() {
         <th>Adjusted ${infoTip('tipAdjusted', 'How is Adjusted calculated?',
           `What this sale suggests <strong>your</strong> flat is worth:
            <ol>
-             <li><strong>Size</strong> — price ÷ that flat's m² × your ${Math.round(e.area)} m²${e.areaAssumed ? ' (median size, as none was entered)' : ''}.</li>
+             <li><strong>Size</strong> — price ÷ that flat's floor area × your ${sqft(e.area)}${e.areaAssumed ? ' (median size, as none was entered)' : ''}.</li>
              <li><strong>Lease</strong> — × Bala's Table % for your ${e.subj.lease} years ÷ the % for that flat's remaining lease. Less lease than yours adjusts up; more adjusts down.</li>
              <li><strong>Floor</strong> — ${e.subj.storey
                 ? `± ${(FLOOR_STEP * 100).toFixed(1)}% per storey between your storey ${e.subj.storey} and the middle of that sale's storey range.`

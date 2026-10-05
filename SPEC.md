@@ -223,14 +223,23 @@ single stress-tested instalment, and persistence of user data between sessions.
 HDB publishes no valuation formula. Its panel valuers use the direct comparison method:
 recent sales of similar flats, adjusted for the differences. The system approximates that.
 
-- **REQ-VAL-1** — The system shall provide, in section 7, a postal-code input that mirrors the section 5 new-flat postal code as it is typed until the user enters a different value there (and falls back to it when blank), optional storey and floor-area inputs, and an *Estimate from recent sales* control.
+- **REQ-VAL-1** — The system shall provide, in section 7, a postal-code input that mirrors the section 5 new-flat postal code as it is typed until the user enters a different value there (and falls back to it when blank), optional storey and floor-area (square feet) inputs, and an *Estimate from recent sales* control.
 - **REQ-VAL-2** — When the control is activated, the system shall geocode the postal code via OneMap to obtain the block number and road name.
 - **REQ-VAL-3** — The system shall identify the HDB street by querying the data.gov.sg Resale Flat Prices dataset for that block number and selecting the street name sharing the most words with the OneMap road name after expanding HDB's abbreviations; if no candidate shares at least half its words, the system shall report that no records were found.
-- **REQ-VAL-4** — The system shall take as comparables the sales of the same flat type on that street registered in the last 12 months.
-- **REQ-VAL-5** — If fewer than 3 such sales exist, then the system shall widen to the same flat type in the same town with a lease start within ±5 years of the TOP year, and shall say so.
-- **REQ-VAL-6** — If fewer than 3 comparables remain, then the system shall report that there are too few sales to estimate from.
+- **REQ-VAL-4** — The system shall take as comparables the sales of the same flat type **and the same model group** on that street registered in the last 12 months.
+- **REQ-VAL-14** — The system shall treat the model group as part of the flat's identity, because HDB's `flat_type` does not distinguish a maisonette: `EXECUTIVE` covers both double-storey Maisonettes and single-level Apartments, and 5-room maisonettes are filed under `5 ROOM`. A comparable set filtered on `flat_type` alone therefore mixes dwelling types that transact at materially different prices per unit area.
+- **REQ-VAL-15** — The room-type selector shall offer 5-room Maisonette, Executive Apartment and Executive Maisonette as distinct options, and shall state why maisonettes are listed separately.
+- **REQ-VAL-16** — Where the selected type is a maisonette, the system shall restrict comparables to the maisonette models and exclude single-level flats of the same flat type; where it is not, the system shall exclude every maisonette model.
+- **REQ-VAL-17** — Every 5-room and Executive variant, maisonette or not, shall fall in the "5-room & above" grant band.
+- **REQ-VAL-18** — The system shall name the models actually compared, so the basis of the estimate is visible rather than implied.
+- **REQ-VAL-5** — If fewer than 5 such sales exist, then the system shall widen the search a tier at a time, keeping the flat type and model group fixed throughout, and shall state which tier produced the figure:
+  1. streets whose position lies within 2 km of the subject block;
+  2. the same town, lease start within ±5 years of the TOP year;
+  3. the same town, any age, the lease difference carried by Bala's Table.
+- **REQ-VAL-19** — For the radius tier the system shall geocode each candidate street at most once per session, cap the number geocoded, and fall through to the town tiers if geocoding is unavailable, so a rate-limited map service degrades the estimate rather than failing it.
+- **REQ-VAL-6** — If fewer than 5 comparables remain after every tier, then the system shall report how many it found and that there are too few to estimate from.
 - **REQ-VAL-7** — The system shall convert each comparable to price per m² and adjust it for lease by the ratio of Bala's Table values (subject remaining lease ÷ comparable remaining lease, linearly interpolated), and, where a storey is entered, by 0.7% per storey of difference from the comparable's storey-range midpoint.
-- **REQ-VAL-8** — The system shall estimate the value as the median adjusted price per m² × the floor area, using the median comparable floor area when none is entered, rounded to the nearest $1,000, and shall show the interquartile range.
+- **REQ-VAL-8** — The system shall take the floor area in square feet, convert it to m² (÷ 10.7639) to match HDB's records, display every floor area in square feet, and estimate the value as the median adjusted price per m² × the floor area, using the median comparable floor area when none is entered, rounded to the nearest $1,000, and shall show the interquartile range.
 - **REQ-VAL-9** — The system shall list every comparable, most recent first, 10 per page with *Newer* / *Older* controls and a position indicator, showing block, storey range, month, size, lease, transacted price and adjusted value.
 - **REQ-VAL-13** — The system shall place an (i) control beside the *Price* and *Adjusted* column headings that reveals, on hover, keyboard focus or tap, what the price is and how the adjusted value is derived, using this flat's area, lease and storey.
 - **REQ-VAL-10** — The system shall state that transacted prices include any COV paid, so HDB's valuation may be lower.
@@ -319,7 +328,9 @@ Values requiring review whenever policy changes.
 | Bank-loan cash floor | 5% of price | MAS | `app.js` → `BANK_CASH_FLOOR` |
 | Bala's Table | 3.8–96.0% for 1–99 yr | SLA Leasehold Table, via CLC commentary | `app.js` → `BALA_TABLE` |
 | Resale dataset | `d_8b84c4ee58e3cfc0ece0d773c8ca6abc` | data.gov.sg / HDB | `app.js` → `RESALE_DATASET` |
-| Comparable window | 12 months, min 3 sales, town fallback ±5 yr lease | Product choice | `app.js` → `COMPARABLE_MONTHS`, `MIN_COMPARABLES`, `TOWN_LEASE_BAND` |
+| Comparable window | 12 months, min 5 sales | Product choice | `app.js` → `COMPARABLE_MONTHS`, `MIN_COMPARABLES` |
+| Widening tiers | 2 km radius (max 18 streets geocoded), then town ±5 yr lease, then town any age | Product choice | `app.js` → `COMPARABLE_RADIUS_KM`, `MAX_STREETS_GEOCODED`, `TOWN_LEASE_BAND` |
+| Maisonette models | Maisonette, Premium Maisonette, Model A-Maisonette, Improved-Maisonette | data.gov.sg `flat_model` values | `app.js` → `MAISONETTE_MODELS` |
 | Floor premium | 0.7% per storey (≈2% per 3 floors) | Industry rule of thumb, not HDB | `app.js` → `FLOOR_STEP` |
 | Proximity threshold | 4 km | HDB PHG | `app.js` → `measure` |
 | Preset "own figures" | 25k / 10k / 10k | Product owner | `app.js` → `PRESETS.custom` |
@@ -338,7 +349,7 @@ Values requiring review whenever policy changes.
 | Grants | REQ-GRANT-1..10 | `index.html` §4, `app.js` → `PRESETS`, `applyPreset`, `compute` |
 | Proximity | REQ-PROX-1..18 | `index.html` §5, `app.js` → `geocode`, `haversineKm`, `measure`, `initMap` |
 | Valuation & COV | REQ-COV-1..8 | `index.html` §7, `app.js` → `compute`, `renderCovBox`, `renderBreakdown` |
-| Valuation estimate | REQ-VAL-1..12 | `index.html` §7, `app.js` → `resolveStreet`, `resaleQuery`, `adjustComparable`, `estimateFrom`, `estimateValuation`, `renderEstimate` |
+| Valuation estimate | REQ-VAL-1..19 | `index.html` §7, `app.js` → `FLAT_SPEC`, `isMaisonette`, `resolveStreet`, `resaleQuery`, `geocodeStreet`, `adjustComparable`, `estimateFrom`, `estimateValuation`, `renderEstimate` |
 | Stamp duty | REQ-BSD-1..6 | `app.js` → `BSD_TIERS`, `buyerStampDuty`, `renderBsdTable` |
 | Cash outlay | REQ-CALC-1..10 | `app.js` → `compute`, `renderBreakdown`, `renderNotes` |
 | Visual design | REQ-VIS-1..8 | `styles.css` tokens; `app.js` → `renderCapitalStack`, `renderLeaseBox` |
@@ -380,6 +391,10 @@ buyer 35, gross income $9,000/month, no other debt, HDB loan, 75% LTV, 25-year t
 | V-21 | Export PDF | Report renders with all seven sections; header, form and map hidden |
 | V-24 | Load at 320, 375, 393 and 430 px | `document.scrollWidth` equals the viewport at every width; no element outside the viewport bar map tiles clipped by the map container |
 | V-26 | Breakdown table at 320/393/430 px, and at 393 px with text inflated 20% and 40% | Table width equals its container at every case; neither the page nor the table scrolls horizontally; no cell overflows its column |
+| V-27 | Estimate an Executive Maisonette | Every comparable's `flat_model` is a maisonette model; no single-level flat appears |
+| V-28 | Estimate an Executive Apartment on the same block | No maisonette appears; the figure differs from V-27, the two dwelling types no longer being blended |
+| V-29 | Estimate a 5-room | Model A / Improved and similar appear; `Model A-Maisonette` and `Improved-Maisonette` are excluded |
+| V-30 | Grant band for 5-room, 5-room Maisonette, Executive Apartment, Executive Maisonette | All four fall in the "5-room & above" band |
 | V-27 | B with valuation $620,000 | COV $30,000; loan $465,000; CPF $105,000; cash for downpayment $80,000; cash outlay $94,100 |
 | V-28 | V-27, bank loan | Minimum Cash $31,000 (5% of valuation); cash outlay unchanged at $94,100 |
 | V-29 | B with valuation $700,000 | No COV; loan $487,500; BSD $15,600 on the valuation; cash outlay $73,100 |
